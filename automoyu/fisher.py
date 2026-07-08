@@ -223,8 +223,9 @@ class FishingController:
             before, after,
             origin=(search["left"], search["top"]),
             box=int(self.cfg.get("bobber_box", 64)),
-            hand_frac_x=float(self.cfg.get("bobber_hand_frac_x", 0.66)),
-            hand_frac_y=float(self.cfg.get("bobber_hand_frac_y", 0.5)),
+            # 中央窄带已排除右下角手持竿，无需再单独抠角(设 >=1 关闭该排除)。
+            hand_frac_x=1.0, hand_frac_y=1.0,
+            red_weight=float(self.cfg.get("bobber_red_weight", 2.0)),
             debug=dbg,
         )
         if not box:
@@ -288,16 +289,23 @@ class FishingController:
                         "msg": f"保存定位依据失败：{e!r}"})
 
     def _shrink_search(self, r: dict) -> dict:
-        """把窗口客户区往里缩，避开顶部/两侧和底部 HUD（物品栏/经验/饥饿），
-        只在中间这片水域里找浮漂，减少误锁到界面元素。"""
-        mx = int(r["width"] * 0.08)
-        top = int(r["height"] * 0.06)
-        bot = int(r["height"] * 0.20)
+        """把搜索区收到准星附近的中央一长条：浮漂总落在画面中心附近，只在这窄带里找。
+
+        原来只裁掉四周留一大片中央区，右下角手持竿、岸边暖色地形、远处/角落的水面
+        噪声都还在搜索范围里，是误定位的主要来源。浮漂 x 几乎恒在画面正中(准星处)、
+        y 在中部上下浮动，所以直接锁定中央这一竖窄横长的带，把上述干扰全排除在外，
+        也就不再需要单独抠右下角手持竿了。四个边界比例可在配置里调。"""
+        def _f(k, d):
+            return float(self.cfg.get(k, d))
+        x0 = min(max(_f("bobber_crop_x0", 0.38), 0.0), 0.9)
+        x1 = min(max(_f("bobber_crop_x1", 0.62), x0 + 0.05), 1.0)
+        y0 = min(max(_f("bobber_crop_y0", 0.28), 0.0), 0.9)
+        y1 = min(max(_f("bobber_crop_y1", 0.66), y0 + 0.05), 1.0)
         return {
-            "left": r["left"] + mx,
-            "top": r["top"] + top,
-            "width": max(10, r["width"] - 2 * mx),
-            "height": max(10, r["height"] - top - bot),
+            "left": r["left"] + int(r["width"] * x0),
+            "top": r["top"] + int(r["height"] * y0),
+            "width": max(10, int(r["width"] * (x1 - x0))),
+            "height": max(10, int(r["height"] * (y1 - y0))),
         }
 
     def _wait_hook(self, present: bool, max_wait: float) -> bool:

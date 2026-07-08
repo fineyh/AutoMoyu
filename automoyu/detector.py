@@ -238,6 +238,7 @@ def auto_locate_bobber(
     min_ratio: float = 1.8,
     hand_frac_x: float = 0.66,
     hand_frac_y: float = 0.5,
+    red_weight: float = 2.0,
     debug: Optional[dict] = None,
 ) -> Optional[dict]:
     """比较甩竿前/后两帧，在"新出现且最集中"的地方框出浮漂，自动给出判定小框。
@@ -259,6 +260,11 @@ def auto_locate_bobber(
 
     origin: after 帧左上角在屏幕上的绝对坐标 (left, top)，用于把结果换算成屏幕绝对框。
     hand_frac_x/hand_frac_y: 右下角手持竿排除区的起点（占宽/高的比例）。设 >=1 可关闭。
+            上层已把搜索区收成中央窄带、天然排除了手持竿，故默认传 1.0 关闭本排除。
+    red_weight: "新出现的红顶"在打分里的权重。浮漂红白顶是最可靠的特征，加大它能让
+            有红时的定位更笃定(与噪声拉开差距)；红被水色冲淡/看不见时该项≈0、不影响，
+            此时仍靠画面差分在窄带里定位。不做"必须有红"的硬门槛——实测浮漂偏小或逆光
+            时红顶极弱(几乎为 0)，硬要求红会把这些本可定位的竿误判成没浮漂而空甩。
     debug:  传入一个 dict 时，会被就地填上打分图/选中窗口/比值等信息，供上层把
             「定位依据」渲染成图保存下来排查（见 render_bobber_debug）。即使这一竿
             没定位到(返回 None) 也会填，方便看清它到底盯上了哪块。
@@ -282,7 +288,7 @@ def auto_locate_bobber(
     red_a = np.maximum(0, ra - np.maximum(ga, ba))
     red_b = np.maximum(0, rb - np.maximum(gb, bb))
     red_new = np.maximum(0, red_b - red_a).astype(np.float64)  # 新出现的红顶
-    score = diff + 0.5 * red_new
+    score = diff + red_weight * red_new
 
     # 抠掉右下角手持鱼竿区：甩竿的运动差+竿身红色否则会把窗口牢牢吸到这儿。
     hx = int(W * hand_frac_x) if 0.0 < hand_frac_x < 1.0 else W

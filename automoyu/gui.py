@@ -28,6 +28,10 @@ FONT_SMALL = ("Microsoft YaHei UI", 8)
 
 
 class App:
+    # 这些微调项按小数(float)读取；其余 _timing_vars 里的键按非负整数读取。
+    _FLOAT_KEYS = {"settle_quiet_mad", "bobber_crop_x0", "bobber_crop_x1",
+                   "bobber_crop_y0", "bobber_crop_y1", "bobber_red_weight"}
+
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.cfg = cfgmod.load()
@@ -49,7 +53,7 @@ class App:
     # ================= UI 构建 =================
     def _build_ui(self) -> None:
         self.root.title("AutoMoyu 🎣")
-        self.root.geometry("390x860")
+        self.root.geometry("390x930")
         self.root.minsize(370, 640)
         try:
             self.root.tk.call("tk", "scaling", 1.0)
@@ -167,6 +171,22 @@ class App:
         self._timing_entry(tf, "咬钩→收竿(ms)", "bite_reel_delay_ms", "仅全自动")
         self._timing_entry(tf, "收竿后再甩(ms)", "post_reel_delay_ms", "仅全自动")
 
+        # --- 自动定位浮漂：中央搜索带 & 红色加权 ---
+        bb = ttk.LabelFrame(self.root, text="定位浮漂：中央搜索带 & 红色加权")
+        bb.pack(fill="x", **pad)
+        ttk.Label(bb, text="浮漂只在准星附近的中央一长条里找（占窗口比例 0–1），带越窄越少误定位。",
+                  font=FONT_SMALL, foreground="#888", wraplength=360, justify="left").pack(
+                      anchor="w", padx=6, pady=(2, 0))
+        rcx = ttk.Frame(bb); rcx.pack(fill="x", padx=6, pady=1)
+        self._frac_field(rcx, "左", "bobber_crop_x0")
+        self._frac_field(rcx, "右", "bobber_crop_x1")
+        self._frac_field(rcx, "上", "bobber_crop_y0")
+        self._frac_field(rcx, "下", "bobber_crop_y1")
+        rcw = ttk.Frame(bb); rcw.pack(fill="x", padx=6, pady=(1, 3))
+        self._frac_field(rcw, "红顶权重", "bobber_red_weight", width=6)
+        ttk.Label(rcw, text="红白顶加权，越大越优先锁红处（默认2.0）",
+                  font=FONT_SMALL, foreground="#888", wraplength=230, justify="left").pack(side="left")
+
         # --- 时长 & 热键 & 安全 ---
         of = ttk.LabelFrame(self.root, text="选项")
         of.pack(fill="x", **pad)
@@ -252,6 +272,17 @@ class App:
             ttk.Label(row, text=hint, font=FONT_SMALL, foreground="#888").pack(side="left")
         self._timing_vars[key] = var
 
+    def _frac_field(self, parent, label: str, key: str, width: int = 5) -> None:
+        """紧凑的小数输入(标签+输入框，横排)：用于浮漂中央带边界(0–1)与红顶权重。
+        与 _timing_entry 一样把变量登记到 _timing_vars，由 _collect_config 统一读取。"""
+        ttk.Label(parent, text=label, font=FONT_SMALL).pack(side="left", padx=(0, 2))
+        var = tk.StringVar(value=str(self.cfg.get(key, cfgmod.DEFAULTS.get(key))))
+        e = ttk.Entry(parent, textvariable=var, width=width)
+        e.pack(side="left", padx=(0, 8))
+        e.bind("<FocusOut>", lambda ev: self._on_cfg_change())
+        e.bind("<Return>", lambda ev: self._on_cfg_change())
+        self._timing_vars[key] = var
+
     # ================= 配置应用/保存 =================
     def _apply_loaded_config(self) -> None:
         self._on_topmost()
@@ -291,7 +322,7 @@ class App:
             self.cfg["bobber_debug"] = bool(self.var_bobberdbg.get())
         for key, var in getattr(self, "_timing_vars", {}).items():
             default = cfgmod.DEFAULTS.get(key)
-            is_float = key == "settle_quiet_mad"
+            is_float = key in self._FLOAT_KEYS
             try:
                 v = float(var.get())
                 self.cfg[key] = v if is_float else max(0, int(v))
