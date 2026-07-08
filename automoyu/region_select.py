@@ -7,11 +7,37 @@
 from __future__ import annotations
 
 import os
+import struct
 import tempfile
 import tkinter as tk
 from typing import Callable, Optional
 
 import numpy as np
+
+
+def save_bmp(path: str, frame_bgra: np.ndarray) -> None:
+    """把 BGRA/BGR 截图存成 24 位 BMP（Windows 自带看图器/画图可直接打开）。
+
+    不依赖 PIL：手写 BMP 文件头 + 位图头，像素按 BMP 惯例自下而上、每行 4 字节对齐。
+    调试用，用来把「定位依据」落盘让用户排查。
+    """
+    arr = np.ascontiguousarray(frame_bgra)
+    if arr.ndim != 3 or arr.shape[2] < 3:
+        raise ValueError("截图格式不对，无法保存为 BMP")
+    bgr = arr[:, :, :3]
+    h, w = bgr.shape[:2]
+    row_bytes = w * 3
+    pad = (-row_bytes) % 4                     # 每行补齐到 4 字节
+    rows = np.zeros((h, row_bytes + pad), dtype=np.uint8)
+    rows[:, :row_bytes] = np.ascontiguousarray(bgr).reshape(h, row_bytes)
+    pixels = rows[::-1].tobytes()              # BMP 自下而上
+    file_hdr = b"BM" + struct.pack("<IHHI", 54 + len(pixels), 0, 0, 54)
+    info_hdr = struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0, len(pixels),
+                           2835, 2835, 0, 0)
+    with open(path, "wb") as f:
+        f.write(file_hdr)
+        f.write(info_hdr)
+        f.write(pixels)
 
 
 def screenshot_to_ppm(frame: np.ndarray) -> str:

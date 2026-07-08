@@ -13,7 +13,8 @@ from typing import Callable, Optional
 
 from . import winio
 from .capture import Capture
-from .detector import auto_locate_bobber, frame_mad, make_detector
+from .detector import (auto_locate_bobber, frame_mad, make_detector,
+                       render_bobber_debug)
 
 
 class FishingController:
@@ -217,16 +218,20 @@ class FishingController:
             self._isleep(0.3)
             return
 
+        dbg = {} if self.cfg.get("bobber_debug") else None
         box = auto_locate_bobber(
             before, after,
             origin=(search["left"], search["top"]),
             box=int(self.cfg.get("bobber_box", 64)),
+            debug=dbg,
         )
         if not box:
+            self._dump_bobber_debug(before, after, dbg, "FAIL")
             self._emit({"type": "log", "level": "warn",
                         "msg": "没定位到浮漂（水面无明显新目标），重甩。"})
             self._isleep(0.3)
             return
+        self._dump_bobber_debug(before, after, dbg, "OK")
         self._active_region = box
         self._emit({"type": "log", "level": "info",
                     "msg": f"已定位浮漂 @ {box['left']},{box['top']}（框 {box['width']}px）"})
@@ -252,6 +257,33 @@ class FishingController:
             else:
                 self._on_catch()
                 self._isleep(self.cfg.get("recast_delay_ms", 900) / 1000.0)
+
+    def _dump_bobber_debug(self, before, after, dbg, tag: str) -> None:
+        """把这一竿的定位依据落盘：甩前/甩后原图 + 打分热力图(叠上选中框)。
+
+        tag: "OK"=定位成功、"FAIL"=被 min_ratio 否决(没找到)。文件名带 ratio，
+        方便对着热力图判断阈值该松还是紧。仅在 bobber_debug 开启且传入 dbg 时执行。
+        """
+        if dbg is None or before is None or after is None:
+            return
+        try:
+            import os
+            from . import paths
+            from .region_select import save_bmp
+            folder = os.path.join(paths.DATA_DIR, "bobber_debug")
+            os.makedirs(folder, exist_ok=True)
+            stamp = time.strftime("%H%M%S")
+            ratio = dbg.get("ratio", 0.0)
+            save_bmp(os.path.join(folder, f"{stamp}_1_before.bmp"), before)
+            save_bmp(os.path.join(folder, f"{stamp}_2_after.bmp"), after)
+            overlay = render_bobber_debug(after, dbg)
+            save_bmp(os.path.join(folder,
+                     f"{stamp}_3_score_{tag}_r{ratio:.2f}.bmp"), overlay)
+            self._emit({"type": "log", "level": "info",
+                        "msg": f"已存定位依据({tag} 比值{ratio:.2f}) -> {folder}"})
+        except Exception as e:
+            self._emit({"type": "log", "level": "warn",
+                        "msg": f"保存定位依据失败：{e!r}"})
 
     def _shrink_search(self, r: dict) -> dict:
         """把窗口客户区往里缩，避开顶部/两侧和底部 HUD（物品栏/经验/饥饿），

@@ -107,6 +107,12 @@ class App:
                         variable=self.var_autobobber,
                         command=self._on_autobobber_change).pack(side="left")
 
+        rowdbg = ttk.Frame(mf); rowdbg.pack(fill="x", padx=6, pady=(0, 2))
+        self.var_bobberdbg = tk.BooleanVar(value=bool(self.cfg.get("bobber_debug", False)))
+        ttk.Checkbutton(rowdbg, text="保存定位依据截图（甩前/甩后/热力图）到 data\\bobber_debug",
+                        variable=self.var_bobberdbg,
+                        command=self._on_cfg_change).pack(side="left")
+
         row3 = ttk.Frame(mf); row3.pack(fill="x", padx=6, pady=3)
         self.btn_region = ttk.Button(row3, text="选择区域", width=9, command=self._select_region)
         self.btn_region.pack(side="left")
@@ -281,6 +287,8 @@ class App:
             self.cfg["hook_adaptive"] = bool(self.var_adaptive.get())
         if hasattr(self, "var_autobobber"):
             self.cfg["auto_bobber"] = bool(self.var_autobobber.get())
+        if hasattr(self, "var_bobberdbg"):
+            self.cfg["bobber_debug"] = bool(self.var_bobberdbg.get())
         for key, var in getattr(self, "_timing_vars", {}).items():
             default = cfgmod.DEFAULTS.get(key)
             is_float = key == "settle_quiet_mad"

@@ -236,6 +236,7 @@ def auto_locate_bobber(
     origin: tuple[int, int] = (0, 0),
     box: int = 64,
     min_ratio: float = 1.8,
+    debug: Optional[dict] = None,
 ) -> Optional[dict]:
     """比较甩竿前/后两帧，在"新出现且最集中"的地方框出浮漂，自动给出判定小框。
 
@@ -249,6 +250,9 @@ def auto_locate_bobber(
     甩出去 / 浮漂被挡），返回 None，让上层重甩。
 
     origin: after 帧左上角在屏幕上的绝对坐标 (left, top)，用于把结果换算成屏幕绝对框。
+    debug:  传入一个 dict 时，会被就地填上打分图/选中窗口/比值等信息，供上层把
+            「定位依据」渲染成图保存下来排查（见 render_bobber_debug）。即使这一竿
+            没定位到(返回 None) 也会填，方便看清它到底盯上了哪块。
     返回 {left, top, width, height}（屏幕绝对坐标，正方形边长≈box）或 None。
     """
     if (before_bgra.ndim != 3 or after_bgra.ndim != 3
@@ -262,8 +266,14 @@ def auto_locate_bobber(
     gray_a = 0.299 * ra + 0.587 * ga + 0.114 * ba
     gray_b = 0.299 * rb + 0.587 * gb + 0.114 * bb
     diff = np.abs(gray_b - gray_a)
-    red = np.maximum(0, rb - np.maximum(gb, bb)).astype(np.float64)  # 浮漂红顶
-    score = diff + 0.5 * red
+    # 只认"新出现的红"：浮漂红顶落在水面上，是 after 比 before 多出来的红色度。
+    # 若用 after 的绝对红色度(rb - max(gb,bb))，静止的暖色地形(沙/红沙/泥/下界岩)、
+    # 夕阳天空、手臂等会到处恒定加分，把窗口拉到浮漂以外的红色区域——这正是
+    # "定位到的不是浮漂"的主因。改成 (after 红 - before 红)：静止暖色两帧相同 -> 0。
+    red_a = np.maximum(0, ra - np.maximum(ga, ba))
+    red_b = np.maximum(0, rb - np.maximum(gb, bb))
+    red_new = np.maximum(0, red_b - red_a).astype(np.float64)  # 新出现的红顶
+    score = diff + 0.5 * red_new
 
     # 下采样加速；滑窗用积分图 O(N) 求所有窗口和。
     ds = max(1, box // 24)
@@ -279,11 +289,63 @@ def auto_locate_bobber(
     wy, wx = divmod(flat, win.shape[1])
     best_avg = float(win[wy, wx]) / float(bw * bw)
     mean = float(s.mean())
-    if mean <= 1e-6 or best_avg < mean * min_ratio:
-        return None
+    ratio = (best_avg / mean) if mean > 1e-6 else 0.0
 
     left_rel = int(min(wx * ds, max(0, W - box)))
     top_rel = int(min(wy * ds, max(0, H - box)))
+    if debug is not None:
+        debug.update({"score": s, "ds": int(ds), "box": int(box),
+                      "left_rel": left_rel, "top_rel": top_rel,
+                      "ratio": float(ratio), "best_avg": float(best_avg),
+                      "mean": float(mean), "min_ratio": float(min_ratio)})
+
+    if mean <= 1e-6 or best_avg < mean * min_ratio:
+        return None
     ox, oy = origin
     return {"left": int(ox + left_rel), "top": int(oy + top_rel),
             "width": int(box), "height": int(box)}
+
+
+def render_bobber_debug(after_bgra: np.ndarray, debug: dict) -> np.ndarray:
+    """把 auto_locate_bobber 的打分依据画到 after 帧上，返回一张可保存的 BGRA 图。
+
+    - 红色越亮 = 该处"打分(变化+新红顶)"越高，也就是定位器认为越像浮漂的地方。
+    - 亮绿色方框 = 定位器最终选中(或即便被 min_ratio 否决也最想选)的判定小框。
+    这样一眼就能看出它到底盯上了哪块：是浮漂，还是鱼竿/水花/岸边/暖色地形。
+    """
+    base = np.ascontiguousarray(after_bgra[:, :, :3], dtype=np.float64)
+    H, W = base.shape[:2]
+    out = base.copy()
+
+    s = debug.get("score")
+    if s is not None and getattr(s, "size", 0):
+        ds = max(1, int(debug.get("ds", 1)))
+        heat = np.repeat(np.repeat(s, ds, axis=0), ds, axis=1)
+        # 对齐到 after 尺寸（下采样后可能略小/略大）。
+        hm = np.zeros((H, W), dtype=np.float64)
+        hh, hw = min(H, heat.shape[0]), min(W, heat.shape[1])
+        hm[:hh, :hw] = heat[:hh, :hw]
+        m = float(hm.max())
+        if m > 1e-6:
+            hm /= m
+        a = (0.65 * hm)[..., None]           # 越热越红
+        red_bgr = np.array([40.0, 40.0, 255.0])  # BGR
+        out = out * (1.0 - a) + red_bgr * a
+
+    out = np.clip(out, 0, 255).astype(np.uint8)
+
+    # 画选中框（亮绿，2px 边）。
+    box = int(debug.get("box", 0))
+    lr = int(debug.get("left_rel", 0))
+    tr = int(debug.get("top_rel", 0))
+    if box > 0:
+        x0, y0 = max(0, lr), max(0, tr)
+        x1, y1 = min(W, lr + box), min(H, tr + box)
+        green = np.array([0, 255, 0], dtype=np.uint8)  # BGR
+        t = 2
+        if x1 > x0 and y1 > y0:
+            out[y0:min(H, y0 + t), x0:x1] = green
+            out[max(0, y1 - t):y1, x0:x1] = green
+            out[y0:y1, x0:min(W, x0 + t)] = green
+            out[y0:y1, max(0, x1 - t):x1] = green
+    return out

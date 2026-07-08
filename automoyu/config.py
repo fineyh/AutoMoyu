@@ -11,6 +11,7 @@ DEFAULTS = {
     "region": None,            # {left, top, width, height}
     "auto_bobber": False,      # 自动识别游戏窗口并每竿自动定位浮漂、贴小框判定(无需手动框选)
     "bobber_box": 64,          # 自动定位后贴出的判定小框边长(px)；框固定大小 -> 阈值稳定好调
+    "bobber_debug": False,      # 保存每竿定位依据(甩前/甩后/打分热力图+选中框)到 data/bobber_debug 供排查
     "sensitivity": 5,          # 1..10
     "duration_min": 0,         # 本次时长(分钟)，0=不限
     "toggle_key": "F6",        # 开始/停止
