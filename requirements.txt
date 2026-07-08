@@ -1,4 +1,4 @@
-# AutoMoyu 依赖。你的环境里这些通常已经装好了。
+# AutoMoyu 依赖。
 mss>=9.0
 numpy>=1.24
 # 注意：GUI 用的是 Python 自带的 tkinter，无需额外安装。
