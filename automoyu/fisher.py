@@ -226,6 +226,8 @@ class FishingController:
             # 中央窄带已排除右下角手持竿，无需再单独抠角(设 >=1 关闭该排除)。
             hand_frac_x=1.0, hand_frac_y=1.0,
             red_weight=float(self.cfg.get("bobber_red_weight", 2.0)),
+            anchor_x=float(self.cfg.get("bobber_anchor_x", 0.5)),
+            anchor_y=float(self.cfg.get("bobber_anchor_y", 0.2)),
             debug=dbg,
         )
         if not box:
