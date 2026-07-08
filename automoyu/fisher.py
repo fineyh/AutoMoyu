@@ -13,7 +13,7 @@ from typing import Callable, Optional
 
 from . import winio
 from .capture import Capture
-from .detector import make_detector
+from .detector import frame_mad, make_detector
 
 
 class FishingController:
@@ -112,11 +112,8 @@ class FishingController:
     def _cycle_semi(self) -> None:
         if not self._do_cast():
             return
-        if not self._isleep(self.cfg.get("settle_ms", 1500) / 1000.0):
-            return
-        base = self._grab()
+        base = self._wait_settle()
         if base is None:
-            self._isleep(0.3)
             return
         self._detector.set_baseline(base)
         self._emit({"type": "state", "running": True, "phase": "监视中"})
@@ -130,11 +127,8 @@ class FishingController:
     def _cycle_full(self) -> None:
         if not self._do_cast():
             return
-        if not self._isleep(self.cfg.get("settle_ms", 1500) / 1000.0):
-            return
-        base = self._grab()
+        base = self._wait_settle()
         if base is None:
-            self._isleep(0.3)
             return
         self._detector.set_baseline(base)
         self._emit({"type": "state", "running": True, "phase": "等咬钩"})
@@ -208,6 +202,56 @@ class FishingController:
                 consec = 0
             self._isleep(interval)
         return False
+
+    def _wait_settle(self):
+        """甩竿后等浮漂真正落水、画面稳定下来，再取基准。
+
+        固定等待不可靠（落点远近、水花大小不同耗时不同），会把"运动中的一帧"
+        当基准，导致刚甩出就误判变化。这里先等一个最小时间跳过甩竿/入水动画，
+        再持续对比相邻两帧，直到连续 confirm 帧几乎不动（帧间差 ≤ 安静阈值）才
+        认定稳定，用这一稳定帧做基准；最长不超过 settle_max_ms，超时用最后一帧兜底。
+
+        返回稳定后的画面帧；被停止或首帧截图失败时返回 None。
+        """
+        # 最小等待：跳过甩竿飞行 + 入水那段剧烈变化。
+        if not self._isleep(self.cfg.get("settle_ms", 1500) / 1000.0):
+            return None
+
+        last = self._grab()
+        if last is None:
+            self._isleep(0.3)
+            return None
+        if not self.cfg.get("settle_stabilize", True):
+            return last
+
+        self._emit({"type": "state", "running": True, "phase": "等待稳定"})
+        poll_hz = max(2, int(self.cfg.get("poll_hz", 15)))
+        interval = 1.0 / poll_hz
+        max_wait = float(self.cfg.get("settle_max_ms", 5000)) / 1000.0
+        confirm = max(1, int(self.cfg.get("confirm_frames", 2)))
+        quiet = float(self.cfg.get("settle_quiet_mad", 3.0))
+        t0 = time.time()
+        prev = last
+        consec = 0
+        while not self._stop.is_set():
+            if not self._isleep(interval):
+                return None
+            frame = self._grab()
+            if frame is None:
+                continue
+            last = frame
+            diff = frame_mad(prev, frame)
+            self._emit({"type": "metric", "value": diff, "thr": quiet, "trig": False})
+            prev = frame
+            if diff <= quiet:
+                consec += 1
+                if consec >= confirm:
+                    return frame
+            else:
+                consec = 0
+            if time.time() - t0 > max_wait:
+                return last  # 超时兜底：水面可能一直在动，用最后一帧
+        return None
 
     def _watch_for_change(self, kind: str) -> bool:
         """轮询区域，直到检测到变化(返回 True)、超时(False) 或被停止(False)。"""

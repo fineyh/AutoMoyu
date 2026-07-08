@@ -35,6 +35,15 @@ def _downscale_gray(frame_bgra: np.ndarray, target: int = 64) -> np.ndarray:
     return gray[::step, ::step]
 
 
+def frame_mad(a_bgra: np.ndarray, b_bgra: np.ndarray, target: int = 64) -> float:
+    """两帧画面的平均绝对差（缩小成灰度后比较）。用来判断"画面在不在动"。"""
+    ga = _downscale_gray(a_bgra, target)
+    gb = _downscale_gray(b_bgra, target)
+    if ga.shape != gb.shape:
+        return 999.0
+    return float(np.abs(ga - gb).mean())
+
+
 class BaseDetector:
     name = "base"
 

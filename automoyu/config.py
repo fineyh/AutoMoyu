@@ -17,7 +17,10 @@ DEFAULTS = {
     "focus_guard": True,       # 只在目标窗口聚焦时点击
     "target_window": "Minecraft",
     # 时序（毫秒）
-    "settle_ms": 1500,         # 甩竿后等浮漂落水、画面稳定
+    "settle_ms": 1500,         # 甩竿后至少等这么久（跳过甩竿/入水动画）再开始判稳
+    "settle_stabilize": True,  # 甩竿后自适应等画面稳定(浮漂落水静止)再取基准，避免刚甩出就误判
+    "settle_max_ms": 5000,     # 等稳定的最长时间，超时用最后一帧兜底
+    "settle_quiet_mad": 3.0,   # 相邻帧差 ≤ 此值算"画面静止"(灰度 0..255)；水面偏动可调大
     "recast_delay_ms": 900,    # 检测到钓上后，重新甩竿前的等待
     "max_wait_s": 45,          # 长时间没检测到 -> 保险重甩
     "cast_confirm_s": 3,       # 手持竿钩：甩竿后等钩离开手上的最长确认时间，超时判定没甩出去
