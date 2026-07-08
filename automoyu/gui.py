@@ -140,13 +140,17 @@ class App:
         sf.pack(fill="x", **pad)
         srow = ttk.Frame(sf); srow.pack(fill="x", padx=6, pady=2)
         ttk.Label(srow, text="灵敏度", font=FONT).pack(side="left")
-        self.var_sens = tk.IntVar(value=int(self.cfg.get("sensitivity", 5)))
+        self.var_sens = tk.DoubleVar(value=float(self.cfg.get("sensitivity", 5)))
         self.scale = ttk.Scale(srow, from_=1, to=10, orient="horizontal",
                                command=self._on_sens)
         self.scale.pack(side="left", fill="x", expand=True, padx=6)
-        self.lbl_sens = ttk.Label(srow, text=str(self.var_sens.get()), width=2, font=FONT)
+        self.lbl_sens = ttk.Label(srow, text=f"{self.var_sens.get():.1f}", width=4, font=FONT)
         self.lbl_sens.pack(side="left")
-        self.scale.set(self.var_sens.get())  # 最后再 set，避免回调触发时控件还没建好
+        # 滑块下方直接显示这个灵敏度对应的『具体触发阈值』，不用再猜"几级=多少"
+        self.var_sens_thr = tk.StringVar(value="")
+        ttk.Label(sf, textvariable=self.var_sens_thr, font=FONT_SMALL,
+                  foreground="#888").pack(anchor="w", padx=6)
+        self.scale.set(self.var_sens.get())  # 最后再 set（会触发 _on_sens 填好阈值文本）
 
         self.meter = tk.Canvas(sf, height=16, bg="#eee", highlightthickness=1,
                                highlightbackground="#ccc")
@@ -298,7 +302,7 @@ class App:
     def _collect_config(self) -> None:
         self.cfg["mode"] = self.var_mode.get()
         self.cfg["target"] = self.var_target.get()
-        self.cfg["sensitivity"] = int(self.var_sens.get())
+        self.cfg["sensitivity"] = round(float(self.var_sens.get()), 1)
         self.cfg["always_on_top"] = bool(self.var_top.get())
         self.cfg["focus_guard"] = bool(self.var_guard.get())
         self.cfg["target_window"] = self.var_win.get().strip() or "Minecraft"
@@ -360,10 +364,15 @@ class App:
             self.btn_auto.state(["!disabled"])
 
     def _on_sens(self, _val: str) -> None:
-        s = int(round(float(self.scale.get())))
+        s = round(float(self.scale.get()), 1)  # 0.1 步进，比整数级别细 10 倍
         self.var_sens.set(s)
         if hasattr(self, "lbl_sens"):
-            self.lbl_sens.config(text=str(s))
+            self.lbl_sens.config(text=f"{s:.1f}")
+        if hasattr(self, "var_sens_thr"):
+            try:
+                self.var_sens_thr.set("触发条件： " + self.controller.describe_threshold(s))
+            except Exception:
+                self.var_sens_thr.set("")
         self.controller.set_sensitivity(s)
         self.cfg["sensitivity"] = s
         self._save()

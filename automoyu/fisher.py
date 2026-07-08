@@ -71,10 +71,15 @@ class FishingController:
         else:
             self.start()
 
-    def set_sensitivity(self, s: int) -> None:
-        self.cfg["sensitivity"] = int(s)
+    def set_sensitivity(self, s: float) -> None:
+        self.cfg["sensitivity"] = float(s)
         if self._detector is not None:
-            self._detector.set_sensitivity(int(s))
+            self._detector.set_sensitivity(float(s))
+
+    def describe_threshold(self, s: float) -> str:
+        """某个灵敏度对应的具体触发阈值文本（按当前目标计算）。没在跑时临时建个检测器算。"""
+        det = self._detector or make_detector(self.cfg)
+        return det.describe_threshold(s)
 
     # ---------- 工作线程 ----------
     def _loop(self) -> None:

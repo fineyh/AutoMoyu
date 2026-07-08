@@ -19,7 +19,7 @@ DEFAULTS = {
     "bobber_red_weight": 2.0,  # 打分里"新出现的红顶"的权重：浮漂红白顶是最可靠特征，加大它让有红时更笃定
     # 浮漂在判定小框里的落点(占框宽/高的比例)：默认摆在中上方，框内浮漂下方留空间捕捉下沉/溅水
     "bobber_anchor_x": 0.5, "bobber_anchor_y": 0.2,
-    "sensitivity": 5,          # 1..10
+    "sensitivity": 5,          # 1..10，可带 0.1 小数（细调）
     "duration_min": 0,         # 本次时长(分钟)，0=不限
     "toggle_key": "F6",        # 开始/停止
     "stop_key": "F8",          # 紧急停止

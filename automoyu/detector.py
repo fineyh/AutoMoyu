@@ -3,7 +3,8 @@
 - XpBarDetector：数经验条里"绿色像素"的数量，钓到鱼 -> 经验增加 -> 绿色数量变化。
 - GenericDetector：把区域缩小成灰度，算与基准的平均绝对差（MAD）。适合鱼钩/浮漂等。
 
-灵敏度 1..10：数字越大越灵敏（更小的变化就触发）。
+灵敏度 1..10（可带 0.1 小数细调）：数字越大越灵敏（更小的变化就触发）。
+每个检测器都有 describe_threshold(s)，把灵敏度换算成具体触发阈值供 GUI 显示。
 measure() 返回 (metric, threshold, triggered)，GUI 用它做实时调参。
 """
 from __future__ import annotations
@@ -47,12 +48,16 @@ def frame_mad(a_bgra: np.ndarray, b_bgra: np.ndarray, target: int = 64) -> float
 class BaseDetector:
     name = "base"
 
-    def __init__(self, sensitivity: int = 5) -> None:
-        self.sensitivity = int(sensitivity)
+    def __init__(self, sensitivity: float = 5) -> None:
+        self.sensitivity = float(sensitivity)
         self._baseline = None
 
-    def set_sensitivity(self, s: int) -> None:
-        self.sensitivity = int(max(1, min(10, s)))
+    def set_sensitivity(self, s: float) -> None:
+        self.sensitivity = float(max(1.0, min(10.0, s)))
+
+    def describe_threshold(self, s: float | None = None) -> str:
+        """把某个灵敏度对应的『具体触发条件』写成人话，供 GUI 在拖滑块时直接显示数值。"""
+        return ""
 
     def set_baseline(self, frame_bgra: np.ndarray) -> None:
         raise NotImplementedError
@@ -77,6 +82,11 @@ class XpBarDetector(BaseDetector):
         # 钓上一条鱼经验条只涨一小截，阈值太高会导致 meter 跑不满、检测不到、迟迟不重甩。
         frac = np.interp(self.sensitivity, [1, 10], [0.006, 0.0004])
         return max(2.0, frac * self._area)
+
+    def describe_threshold(self, s: float | None = None) -> str:
+        s = self.sensitivity if s is None else s
+        frac = float(np.interp(s, [1, 10], [0.006, 0.0004]))
+        return f"经验条变化 ≥ {frac * 100:.3f}% 面积"
 
     def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
         if self._baseline is None:
@@ -117,6 +127,10 @@ class GenericDetector(BaseDetector):
         # 灵敏度 1..10 -> MAD 阈值 22 .. 3（灰度 0..255）
         return float(np.interp(self.sensitivity, [1, 10], [22.0, 3.0]))
 
+    def describe_threshold(self, s: float | None = None) -> str:
+        s = self.sensitivity if s is None else s
+        return f"变化 MAD ≥ {float(np.interp(s, [1, 10], [22.0, 3.0])):.1f}（越小越灵敏）"
+
     def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
         cur = self._prep(frame_bgra)
         thr = self._threshold()
@@ -154,6 +168,10 @@ class HookStateDetector(BaseDetector):
         # 越大越"宽松"，越容易判定"钩在"（更快认定钓上/收线回来）。
         return float(np.interp(self.sensitivity, [1, 10], [4.0, 16.0]))
 
+    def describe_threshold(self, s: float | None = None) -> str:
+        s = self.sensitivity if s is None else s
+        return f"差值 MAD ≤ {float(np.interp(s, [1, 10], [4.0, 16.0])):.1f}（越大越宽松）"
+
     def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
         cur = self._prep(frame_bgra)
         thr = self._threshold()
@@ -165,7 +183,7 @@ class HookStateDetector(BaseDetector):
 
 def make_detector(cfg: dict) -> BaseDetector:
     target = cfg.get("target", "xp")
-    sensitivity = int(cfg.get("sensitivity", 5))
+    sensitivity = float(cfg.get("sensitivity", 5))
     # 自动定位浮漂：判定的是"浮漂小框"里的突变(下沉)，用通用差分检测器。
     if cfg.get("auto_bobber"):
         return GenericDetector(
