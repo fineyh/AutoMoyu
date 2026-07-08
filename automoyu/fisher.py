@@ -13,7 +13,7 @@ from typing import Callable, Optional
 
 from . import winio
 from .capture import Capture
-from .detector import frame_mad, make_detector
+from .detector import auto_locate_bobber, frame_mad, make_detector
 
 
 class FishingController:
@@ -28,6 +28,7 @@ class FishingController:
         self._session_start = 0.0
         self._grab_warned = False
         self._last_frame_emit = 0.0
+        self._active_region = None  # 自动定位浮漂时，当前这一竿贴出的判定小框
 
     # ---------- 对外控制 ----------
     @property
@@ -37,8 +38,13 @@ class FishingController:
     def start(self) -> bool:
         if self.running:
             return False
-        region = self.cfg.get("region")
-        if not region:
+        if self.cfg.get("auto_bobber"):
+            win = str(self.cfg.get("target_window", "Minecraft"))
+            if winio.find_window_rect(win) is None:
+                self._emit({"type": "log", "level": "warn",
+                            "msg": f"没找到游戏窗口「{win}」，请先启动并保持它可见。"})
+                return False
+        elif not self.cfg.get("region"):
             self._emit({"type": "log", "level": "warn", "msg": "未设置监控区域，请先选择或自动定位。"})
             return False
         # 收掉可能残留的上一个线程
@@ -76,8 +82,12 @@ class FishingController:
         target = cfg.get("target", "xp")
         self._cap = Capture()
         self._session_start = time.time()
+        auto_bobber = bool(cfg.get("auto_bobber"))
         self.stats.start_session(mode, target)
-        target_name = {"xp": "经验条", "hookstate": "手持竿钩"}.get(target, "鱼钩")
+        if auto_bobber:
+            target_name = "浮漂(自动定位)"
+        else:
+            target_name = {"xp": "经验条", "hookstate": "手持竿钩"}.get(target, "鱼钩")
         self._emit({"type": "state", "running": True, "phase": "运行中"})
         self._emit({"type": "log", "level": "info",
                     "msg": f"开始（{'全自动' if mode == 'full' else '半自动'} / {target_name}）"})
@@ -86,7 +96,9 @@ class FishingController:
                 if self._duration_reached():
                     self._emit({"type": "log", "level": "info", "msg": "已达到设定时长，自动停止。"})
                     break
-                if target == "hookstate":
+                if auto_bobber:
+                    self._cycle_auto_bobber(mode)
+                elif target == "hookstate":
                     self._cycle_hook_state()
                 elif mode == "full":
                     self._cycle_full()
@@ -177,6 +189,82 @@ class FishingController:
                 self._detector.set_baseline(cur)
             self._on_catch()
             self._isleep(self.cfg.get("recast_delay_ms", 900) / 1000.0)
+
+    # ---------- 自动定位浮漂：找窗口 -> 甩竿 -> 定位 -> 贴小框判定 ----------
+    def _cycle_auto_bobber(self, mode: str) -> None:
+        self._active_region = None
+        search = winio.find_window_rect(str(self.cfg.get("target_window", "Minecraft")))
+        if not search:
+            self._emit({"type": "log", "level": "warn", "msg": "没找到游戏窗口，等待…"})
+            self._isleep(0.5)
+            return
+        search = self._shrink_search(search)
+
+        # 甩竿前抓一张「无浮漂」参考（上一竿已收线，水里没浮漂）。
+        before = self._grab(search)
+        if before is None:
+            self._isleep(0.3)
+            return
+        if not self._do_cast():
+            return
+
+        # 等浮漂飞出、落水、水花散开，再抓「有浮漂」的一帧。
+        self._emit({"type": "state", "running": True, "phase": "定位浮漂"})
+        if not self._isleep(self.cfg.get("settle_ms", 1500) / 1000.0):
+            return
+        after = self._grab(search)
+        if after is None:
+            self._isleep(0.3)
+            return
+
+        box = auto_locate_bobber(
+            before, after,
+            origin=(search["left"], search["top"]),
+            box=int(self.cfg.get("bobber_box", 64)),
+        )
+        if not box:
+            self._emit({"type": "log", "level": "warn",
+                        "msg": "没定位到浮漂（水面无明显新目标），重甩。"})
+            self._isleep(0.3)
+            return
+        self._active_region = box
+        self._emit({"type": "log", "level": "info",
+                    "msg": f"已定位浮漂 @ {box['left']},{box['top']}（框 {box['width']}px）"})
+        self._emit_frame(self._grab(box), False)
+
+        # 在这一小框上等画面稳定、取基准，再监视浮漂下沉。
+        base = self._wait_settle()
+        if base is None:
+            return
+        self._detector.set_baseline(base)
+        self._emit({"type": "state", "running": True,
+                    "phase": "等咬钩" if mode == "full" else "监视中"})
+
+        hit = self._watch_for_change("bite")
+        if hit:
+            if mode == "full":
+                self._isleep(self.cfg.get("bite_reel_delay_ms", 60) / 1000.0)
+                if self._stop.is_set():
+                    return
+                self._click_action("收竿")
+                self._on_catch()
+                self._isleep(self.cfg.get("post_reel_delay_ms", 1200) / 1000.0)
+            else:
+                self._on_catch()
+                self._isleep(self.cfg.get("recast_delay_ms", 900) / 1000.0)
+
+    def _shrink_search(self, r: dict) -> dict:
+        """把窗口客户区往里缩，避开顶部/两侧和底部 HUD（物品栏/经验/饥饿），
+        只在中间这片水域里找浮漂，减少误锁到界面元素。"""
+        mx = int(r["width"] * 0.08)
+        top = int(r["height"] * 0.06)
+        bot = int(r["height"] * 0.20)
+        return {
+            "left": r["left"] + mx,
+            "top": r["top"] + top,
+            "width": max(10, r["width"] - 2 * mx),
+            "height": max(10, r["height"] - top - bot),
+        }
 
     def _wait_hook(self, present: bool, max_wait: float) -> bool:
         """轮询，直到"钩在(present=True)/钩不在(present=False)"稳定成立(True)、
@@ -340,9 +428,12 @@ class FishingController:
         # mss 会复用内部缓冲，必须拷一份再跨线程传给 GUI。
         self._emit({"type": "frame", "img": frame.copy(), "trig": bool(trig)})
 
-    def _grab(self):
+    def _grab(self, region: Optional[dict] = None):
+        region = region or self._active_region or self.cfg.get("region")
+        if not region:
+            return None
         try:
-            return self._cap.grab(self.cfg["region"])
+            return self._cap.grab(region)
         except Exception as e:
             if not self._grab_warned:
                 self._emit({"type": "log", "level": "warn", "msg": f"截图失败：{e!r}"})

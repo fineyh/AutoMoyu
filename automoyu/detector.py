@@ -166,6 +166,13 @@ class HookStateDetector(BaseDetector):
 def make_detector(cfg: dict) -> BaseDetector:
     target = cfg.get("target", "xp")
     sensitivity = int(cfg.get("sensitivity", 5))
+    # 自动定位浮漂：判定的是"浮漂小框"里的突变(下沉)，用通用差分检测器。
+    if cfg.get("auto_bobber"):
+        return GenericDetector(
+            sensitivity,
+            adaptive=bool(cfg.get("hook_adaptive", True)),
+            adapt_rate=float(cfg.get("hook_adapt_rate", 0.12)),
+        )
     if target == "xp":
         return XpBarDetector(sensitivity)
     if target == "hookstate":
@@ -221,3 +228,62 @@ def auto_locate_xp_bar(screen_bgra: np.ndarray) -> Optional[dict]:
     if width < 20 or height < 3:
         return None
     return {"left": left, "top": abs_top, "width": width, "height": height}
+
+
+def auto_locate_bobber(
+    before_bgra: np.ndarray,
+    after_bgra: np.ndarray,
+    origin: tuple[int, int] = (0, 0),
+    box: int = 64,
+    min_ratio: float = 1.8,
+) -> Optional[dict]:
+    """比较甩竿前/后两帧，在"新出现且最集中"的地方框出浮漂，自动给出判定小框。
+
+    - before：甩竿前的画面（水里还没有浮漂）。
+    - after ：甩竿落水稳定后的画面（浮漂已经在水面上）。
+    两帧相减，新出现的浮漂会亮起来；水面动画是高频、分散的噪声。再用"红色度"给浮漂
+    的红白顶端加权。对这张打分图用与浮漂框同大小的滑动窗口求和，取和最大的窗口——
+    也就是"新东西最扎堆"的一小块，正是浮漂。
+
+    若最强窗口并不比整体平均明显（比值 < min_ratio），说明没有明显的新目标（可能没
+    甩出去 / 浮漂被挡），返回 None，让上层重甩。
+
+    origin: after 帧左上角在屏幕上的绝对坐标 (left, top)，用于把结果换算成屏幕绝对框。
+    返回 {left, top, width, height}（屏幕绝对坐标，正方形边长≈box）或 None。
+    """
+    if (before_bgra.ndim != 3 or after_bgra.ndim != 3
+            or before_bgra.shape != after_bgra.shape):
+        return None
+    H, W = after_bgra.shape[:2]
+    box = int(max(8, min(box, H, W)))
+
+    ra, ga, ba = _to_rgb(before_bgra)
+    rb, gb, bb = _to_rgb(after_bgra)
+    gray_a = 0.299 * ra + 0.587 * ga + 0.114 * ba
+    gray_b = 0.299 * rb + 0.587 * gb + 0.114 * bb
+    diff = np.abs(gray_b - gray_a)
+    red = np.maximum(0, rb - np.maximum(gb, bb)).astype(np.float64)  # 浮漂红顶
+    score = diff + 0.5 * red
+
+    # 下采样加速；滑窗用积分图 O(N) 求所有窗口和。
+    ds = max(1, box // 24)
+    s = np.ascontiguousarray(score[::ds, ::ds], dtype=np.float64)
+    bw = max(2, box // ds)
+    sh, sw = s.shape
+    if sh < bw or sw < bw:
+        return None
+    ii = np.zeros((sh + 1, sw + 1), dtype=np.float64)
+    ii[1:, 1:] = np.cumsum(np.cumsum(s, axis=0), axis=1)
+    win = ii[bw:, bw:] - ii[:-bw, bw:] - ii[bw:, :-bw] + ii[:-bw, :-bw]
+    flat = int(np.argmax(win))
+    wy, wx = divmod(flat, win.shape[1])
+    best_avg = float(win[wy, wx]) / float(bw * bw)
+    mean = float(s.mean())
+    if mean <= 1e-6 or best_avg < mean * min_ratio:
+        return None
+
+    left_rel = int(min(wx * ds, max(0, W - box)))
+    top_rel = int(min(wy * ds, max(0, H - box)))
+    ox, oy = origin
+    return {"left": int(ox + left_rel), "top": int(oy + top_rel),
+            "width": int(box), "height": int(box)}

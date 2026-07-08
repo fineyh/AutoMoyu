@@ -100,8 +100,16 @@ class App:
         ttk.Radiobutton(row2, text="手持竿钩", value="hookstate",
                         variable=self.var_target, command=self._on_target_change).pack(side="left")
 
+        # 自动识别窗口 + 每竿自动定位浮漂：勾上就不用手动框选了。
+        rowab = ttk.Frame(mf); rowab.pack(fill="x", padx=6, pady=(2, 0))
+        self.var_autobobber = tk.BooleanVar(value=bool(self.cfg.get("auto_bobber", False)))
+        ttk.Checkbutton(rowab, text="自动识别窗口并定位浮漂（无需框选）",
+                        variable=self.var_autobobber,
+                        command=self._on_autobobber_change).pack(side="left")
+
         row3 = ttk.Frame(mf); row3.pack(fill="x", padx=6, pady=3)
-        ttk.Button(row3, text="选择区域", width=9, command=self._select_region).pack(side="left")
+        self.btn_region = ttk.Button(row3, text="选择区域", width=9, command=self._select_region)
+        self.btn_region.pack(side="left")
         self.btn_auto = ttk.Button(row3, text="自动定位经验条", command=self._auto_locate)
         self.btn_auto.pack(side="left", padx=4)
         self.var_region = tk.StringVar(value="区域：未设置")
@@ -146,6 +154,7 @@ class App:
                         variable=self.var_adaptive, command=self._on_cfg_change).pack(side="left")
         self._timing_vars: dict = {}
         self._timing_entry(tf, "甩竿后先等(ms)", "settle_ms", "跳过飞行/入水动画")
+        self._timing_entry(tf, "浮漂框大小(px)", "bobber_box", "自动定位浮漂时贴的小框边长")
         self._timing_entry(tf, "判定预热(ms)", "watch_warmup_ms", "这段时间不判定，调大治『太快』")
         self._timing_entry(tf, "静止阈值", "settle_quiet_mad", "水面老在动就调大")
         self._timing_entry(tf, "钓上后重甩(ms)", "recast_delay_ms", None)
@@ -242,8 +251,7 @@ class App:
         self._on_topmost()
         self._refresh_region_label()
         self._refresh_stats()
-        if self.var_target.get() != "xp":
-            self.btn_auto.state(["disabled"])
+        self._sync_region_buttons()
         self._log(f"数据目录：{self._data_hint()}", "info")
 
     def _data_hint(self) -> str:
@@ -271,6 +279,8 @@ class App:
             self.var_hold.set("90")
         if hasattr(self, "var_adaptive"):
             self.cfg["hook_adaptive"] = bool(self.var_adaptive.get())
+        if hasattr(self, "var_autobobber"):
+            self.cfg["auto_bobber"] = bool(self.var_autobobber.get())
         for key, var in getattr(self, "_timing_vars", {}).items():
             default = cfgmod.DEFAULTS.get(key)
             is_float = key == "settle_quiet_mad"
@@ -290,11 +300,25 @@ class App:
 
     def _on_target_change(self) -> None:
         self._on_cfg_change()
-        # 自动定位仅用于经验条；其它目标禁用该按钮。
-        if self.var_target.get() == "xp":
-            self.btn_auto.state(["!disabled"])
-        else:
+        self._sync_region_buttons()
+
+    def _on_autobobber_change(self) -> None:
+        self._on_cfg_change()
+        self._sync_region_buttons()
+        if self.var_autobobber.get():
+            self._log("已开启自动定位浮漂：无需框选，每甩一竿自动找浮漂贴小框判定。"
+                      "请确保游戏窗口标题含「%s」。" % self.cfg.get("target_window", "Minecraft"), "info")
+
+    def _sync_region_buttons(self) -> None:
+        """自动定位浮漂时，手动框选/自动定位经验条都用不上，禁用以免误操作。"""
+        auto_bobber = bool(self.var_autobobber.get()) if hasattr(self, "var_autobobber") else False
+        if hasattr(self, "btn_region"):
+            self.btn_region.state(["disabled"] if auto_bobber else ["!disabled"])
+        # 自动定位经验条：仅经验条目标、且未开自动浮漂时可用。
+        if auto_bobber or self.var_target.get() != "xp":
             self.btn_auto.state(["disabled"])
+        else:
+            self.btn_auto.state(["!disabled"])
 
     def _on_sens(self, _val: str) -> None:
         s = int(round(float(self.scale.get())))
@@ -366,7 +390,7 @@ class App:
         def done(region):
             self.root.deiconify()
             self._busy = False
-            self.btn_auto.state(["!disabled"] if self.var_target.get() == "xp" else ["disabled"])
+            self._sync_region_buttons()
             self._on_topmost()
             self.var_status.set("待机" if not self.controller.running else "运行中")
             if ppm_path:
@@ -499,7 +523,7 @@ class App:
                     action()
                 finally:
                     self._busy = False
-                    self.btn_auto.state(["!disabled"] if self.var_target.get() == "xp" else ["disabled"])
+                    self._sync_region_buttons()
                     self._on_topmost()
                     self.var_status.set("待机" if not self.controller.running else "运行中")
         step(3)

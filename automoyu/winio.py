@@ -11,6 +11,7 @@ import ctypes
 import threading
 import time
 from ctypes import wintypes
+from typing import Optional
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -142,6 +143,68 @@ def get_foreground_title() -> str:
     buf = ctypes.create_unicode_buffer(length + 1)
     user32.GetWindowTextW(hwnd, buf, length + 1)
     return buf.value
+
+
+# ---- 窗口矩形查询（按标题找游戏窗口，取客户区屏幕绝对坐标）----
+class RECT(ctypes.Structure):
+    _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+
+class POINT(ctypes.Structure):
+    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
+
+WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+user32.EnumWindows.argtypes = (WNDENUMPROC, wintypes.LPARAM)
+user32.EnumWindows.restype = wintypes.BOOL
+user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+user32.IsWindowVisible.restype = wintypes.BOOL
+user32.GetClientRect.argtypes = (wintypes.HWND, ctypes.POINTER(RECT))
+user32.GetClientRect.restype = wintypes.BOOL
+user32.ClientToScreen.argtypes = (wintypes.HWND, ctypes.POINTER(POINT))
+user32.ClientToScreen.restype = wintypes.BOOL
+
+
+def find_window_rect(title_substr: str) -> Optional[dict]:
+    """按标题子串找可见窗口，返回其客户区（不含标题栏/边框）的屏幕绝对矩形。
+
+    客户区 = 游戏真正的画面区域，正是我们要在里面找浮漂的范围。多个匹配时取面积最大
+    的那个（避免命中同名小窗/工具窗）。找不到返回 None。
+    """
+    target = (title_substr or "").lower()
+    if not target:
+        return None
+    found: list[tuple[int, dict]] = []
+
+    def _cb(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        if target not in buf.value.lower():
+            return True
+        rc = RECT()
+        if not user32.GetClientRect(hwnd, ctypes.byref(rc)):
+            return True
+        w = int(rc.right - rc.left)
+        h = int(rc.bottom - rc.top)
+        if w <= 0 or h <= 0:
+            return True
+        pt = POINT(0, 0)
+        user32.ClientToScreen(hwnd, ctypes.byref(pt))
+        found.append((w * h, {"left": int(pt.x), "top": int(pt.y),
+                              "width": w, "height": h}))
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(_cb), 0)
+    if not found:
+        return None
+    found.sort(key=lambda t: t[0], reverse=True)
+    return found[0][1]
 
 
 # ---- 虚拟键码 ----
