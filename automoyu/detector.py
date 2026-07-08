@@ -1,0 +1,150 @@
+"""检测器：不依赖任何保存的参考图，每次甩竿后当场取基准，再看"变化"。
+
+- XpBarDetector：数经验条里"绿色像素"的数量，钓到鱼 -> 经验增加 -> 绿色数量变化。
+- GenericDetector：把区域缩小成灰度，算与基准的平均绝对差（MAD）。适合鱼钩/浮漂等。
+
+灵敏度 1..10：数字越大越灵敏（更小的变化就触发）。
+measure() 返回 (metric, threshold, triggered)，GUI 用它做实时调参。
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+import numpy as np
+
+
+def _to_rgb(frame_bgra: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    b = frame_bgra[..., 0].astype(np.int16)
+    g = frame_bgra[..., 1].astype(np.int16)
+    r = frame_bgra[..., 2].astype(np.int16)
+    return r, g, b
+
+
+def green_mask(frame_bgra: np.ndarray) -> np.ndarray:
+    """Minecraft 经验条是亮黄绿色（lime）。挑出"绿色明显占优"的像素。"""
+    r, g, b = _to_rgb(frame_bgra)
+    return (g > 90) & (g > r + 25) & (g > b + 25)
+
+
+class BaseDetector:
+    name = "base"
+
+    def __init__(self, sensitivity: int = 5) -> None:
+        self.sensitivity = int(sensitivity)
+        self._baseline = None
+
+    def set_sensitivity(self, s: int) -> None:
+        self.sensitivity = int(max(1, min(10, s)))
+
+    def set_baseline(self, frame_bgra: np.ndarray) -> None:
+        raise NotImplementedError
+
+    def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
+        raise NotImplementedError
+
+    @property
+    def has_baseline(self) -> bool:
+        return self._baseline is not None
+
+
+class XpBarDetector(BaseDetector):
+    name = "xp"
+
+    def set_baseline(self, frame_bgra: np.ndarray) -> None:
+        self._baseline = int(green_mask(frame_bgra).sum())
+        self._area = frame_bgra.shape[0] * frame_bgra.shape[1]
+
+    def _threshold(self) -> float:
+        # 灵敏度 1..10 -> 触发所需变化占面积比例 2.0% .. 0.15%
+        frac = np.interp(self.sensitivity, [1, 10], [0.020, 0.0015])
+        return max(4.0, frac * self._area)
+
+    def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
+        if self._baseline is None:
+            self._area = frame_bgra.shape[0] * frame_bgra.shape[1]
+            return 0.0, self._threshold(), False
+        cur = int(green_mask(frame_bgra).sum())
+        delta = float(abs(cur - self._baseline))
+        thr = self._threshold()
+        return delta, thr, delta >= thr
+
+
+class GenericDetector(BaseDetector):
+    name = "generic"
+
+    _TARGET = 64  # 把区域缩小到最长边 ~64 像素再比较，省算力也更稳
+
+    def _prep(self, frame_bgra: np.ndarray) -> np.ndarray:
+        # BGR -> 灰度（简单加权）
+        r, g, b = _to_rgb(frame_bgra)
+        gray = (0.299 * r + 0.587 * g + 0.114 * b)
+        h, w = gray.shape
+        step = max(1, int(round(max(h, w) / self._TARGET)))
+        return gray[::step, ::step]
+
+    def set_baseline(self, frame_bgra: np.ndarray) -> None:
+        self._baseline = self._prep(frame_bgra)
+
+    def _threshold(self) -> float:
+        # 灵敏度 1..10 -> MAD 阈值 22 .. 3（灰度 0..255）
+        return float(np.interp(self.sensitivity, [1, 10], [22.0, 3.0]))
+
+    def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
+        cur = self._prep(frame_bgra)
+        thr = self._threshold()
+        if self._baseline is None or self._baseline.shape != cur.shape:
+            return 0.0, thr, False
+        mad = float(np.abs(cur - self._baseline).mean())
+        return mad, thr, mad >= thr
+
+
+def make_detector(target: str, sensitivity: int) -> BaseDetector:
+    if target == "xp":
+        return XpBarDetector(sensitivity)
+    return GenericDetector(sensitivity)
+
+
+def auto_locate_xp_bar(screen_bgra: np.ndarray) -> Optional[dict]:
+    """在整屏下部自动寻找经验条（一条水平的亮绿色线）。
+
+    需要当前经验条里有一点绿色（非满级 0 经验的空条）。找不到返回 None。
+    返回 {left, top, width, height}（含少量留白）。
+    """
+    H, W = screen_bgra.shape[:2]
+    y0 = int(H * 0.70)  # 只看下部 30%
+    strip = screen_bgra[y0:H]
+    mask = green_mask(strip)
+
+    row_counts = mask.sum(axis=1)
+    if row_counts.max() < W * 0.04:
+        return None  # 没有足够长的绿线，判定失败
+
+    best_row = int(np.argmax(row_counts))
+    thresh = max(3, int(row_counts[best_row] * 0.3))
+    # 向上下扩展，把整条经验条的高度都包住
+    top = best_row
+    while top > 0 and row_counts[top - 1] >= thresh:
+        top -= 1
+    bot = best_row
+    while bot < strip.shape[0] - 1 and row_counts[bot + 1] >= thresh:
+        bot += 1
+
+    band = mask[top:bot + 1]
+    col_any = band.any(axis=0)
+    xs = np.where(col_any)[0]
+    if xs.size == 0:
+        return None
+    x_left, x_right = int(xs.min()), int(xs.max())
+
+    pad_x = max(2, int((x_right - x_left) * 0.03))
+    pad_y = 3
+    left = max(0, x_left - pad_x)
+    right = min(W - 1, x_right + pad_x)
+    abs_top = max(0, y0 + top - pad_y)
+    abs_bot = min(H - 1, y0 + bot + pad_y)
+
+    width = right - left + 1
+    height = abs_bot - abs_top + 1
+    if width < 20 or height < 3:
+        return None
+    return {"left": left, "top": abs_top, "width": width, "height": height}
