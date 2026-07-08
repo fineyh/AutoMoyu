@@ -223,6 +223,8 @@ class FishingController:
             before, after,
             origin=(search["left"], search["top"]),
             box=int(self.cfg.get("bobber_box", 64)),
+            hand_frac_x=float(self.cfg.get("bobber_hand_frac_x", 0.66)),
+            hand_frac_y=float(self.cfg.get("bobber_hand_frac_y", 0.5)),
             debug=dbg,
         )
         if not box:

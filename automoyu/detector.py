@@ -236,6 +236,8 @@ def auto_locate_bobber(
     origin: tuple[int, int] = (0, 0),
     box: int = 64,
     min_ratio: float = 1.8,
+    hand_frac_x: float = 0.66,
+    hand_frac_y: float = 0.5,
     debug: Optional[dict] = None,
 ) -> Optional[dict]:
     """比较甩竿前/后两帧，在"新出现且最集中"的地方框出浮漂，自动给出判定小框。
@@ -249,7 +251,14 @@ def auto_locate_bobber(
     若最强窗口并不比整体平均明显（比值 < min_ratio），说明没有明显的新目标（可能没
     甩出去 / 浮漂被挡），返回 None，让上层重甩。
 
+    第一人称手持鱼竿永远钉在画面右下角。甩竿那一下鱼竿会大幅甩动，两帧相减在右下角
+    产生巨大的运动差(diff)，竿身的木色/附魔色段还会贡献"新出现的红"——两路信号都被
+    它霸占，导致框选死死锁在右下角的竿上而不是浮漂（正是本函数曾经的主要误定位）。
+    因此在打分前把右下角这块手持竿区域(x≥hand_frac_x·W 且 y≥hand_frac_y·H)清零、排除
+    在搜索之外；均值也只按剩余可搜索区域算，避免抠掉一大块后 ratio 被虚高。
+
     origin: after 帧左上角在屏幕上的绝对坐标 (left, top)，用于把结果换算成屏幕绝对框。
+    hand_frac_x/hand_frac_y: 右下角手持竿排除区的起点（占宽/高的比例）。设 >=1 可关闭。
     debug:  传入一个 dict 时，会被就地填上打分图/选中窗口/比值等信息，供上层把
             「定位依据」渲染成图保存下来排查（见 render_bobber_debug）。即使这一竿
             没定位到(返回 None) 也会填，方便看清它到底盯上了哪块。
@@ -275,6 +284,12 @@ def auto_locate_bobber(
     red_new = np.maximum(0, red_b - red_a).astype(np.float64)  # 新出现的红顶
     score = diff + 0.5 * red_new
 
+    # 抠掉右下角手持鱼竿区：甩竿的运动差+竿身红色否则会把窗口牢牢吸到这儿。
+    hx = int(W * hand_frac_x) if 0.0 < hand_frac_x < 1.0 else W
+    hy = int(H * hand_frac_y) if 0.0 < hand_frac_y < 1.0 else H
+    if hx < W and hy < H:
+        score[hy:, hx:] = 0.0
+
     # 下采样加速；滑窗用积分图 O(N) 求所有窗口和。
     ds = max(1, box // 24)
     s = np.ascontiguousarray(score[::ds, ::ds], dtype=np.float64)
@@ -288,7 +303,10 @@ def auto_locate_bobber(
     flat = int(np.argmax(win))
     wy, wx = divmod(flat, win.shape[1])
     best_avg = float(win[wy, wx]) / float(bw * bw)
-    mean = float(s.mean())
+    # 均值只按未抠掉的可搜索像素算：否则抠掉一大片 0 会把整体均值压低、ratio 虚高，
+    # 让"其实没浮漂"的水面噪声也轻松越过 min_ratio 造成误定位。
+    searchable = int(np.count_nonzero(s > 0.0))
+    mean = (float(s.sum()) / searchable) if searchable > 0 else 0.0
     ratio = (best_avg / mean) if mean > 1e-6 else 0.0
 
     left_rel = int(min(wx * ds, max(0, W - box)))
