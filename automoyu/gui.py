@@ -49,8 +49,8 @@ class App:
     # ================= UI 构建 =================
     def _build_ui(self) -> None:
         self.root.title("AutoMoyu 🎣")
-        self.root.geometry("380x700")
-        self.root.minsize(360, 600)
+        self.root.geometry("390x860")
+        self.root.minsize(370, 640)
         try:
             self.root.tk.call("tk", "scaling", 1.0)
         except Exception:
@@ -107,12 +107,15 @@ class App:
         self.var_region = tk.StringVar(value="区域：未设置")
         ttk.Label(mf, textvariable=self.var_region, font=FONT_SMALL, foreground="#555").pack(
             anchor="w", padx=6, pady=(0, 2))
-        # 选完区域/自动定位后，直接把「刚才截到的那块画面」显示出来，一目了然，不再二次截图。
+        # 选完区域/自动定位后显示框到的画面；运行时这里会实时刷新"正在判定"的画面，
+        # 外框绿=正常、红=判定为变化/触发，方便你一眼看出判定快了还是慢了。
         self._preview_photo = None
+        self.preview_box = tk.Frame(mf, bg="#ccc", bd=0)
+        self.preview_box.pack(padx=6, pady=(0, 4))
         self.lbl_preview = ttk.Label(
-            mf, text="（选择区域或自动定位后，这里显示框到的画面）",
+            self.preview_box, text="（选择区域或自动定位后，这里显示框到的画面）",
             font=FONT_SMALL, foreground="#888", anchor="center")
-        self.lbl_preview.pack(fill="x", padx=6, pady=(0, 4))
+        self.lbl_preview.pack(padx=2, pady=2)
 
         # --- 灵敏度 + 实时меter ---
         sf = ttk.LabelFrame(self.root, text="灵敏度 & 实时检测")
@@ -133,6 +136,21 @@ class App:
         self.meter.bind("<Configure>", lambda e: self._draw_meter())
         self.var_metric = tk.StringVar(value="变化 —  /  阈值 —")
         ttk.Label(sf, textvariable=self.var_metric, font=FONT_SMALL).pack(anchor="w", padx=6, pady=(0, 4))
+
+        # --- 时序微调（甩出 → 判定）---
+        tf = ttk.LabelFrame(self.root, text="时序微调（甩出 → 判定）")
+        tf.pack(fill="x", **pad)
+        self.var_adaptive = tk.BooleanVar(value=bool(self.cfg.get("hook_adaptive", True)))
+        ck = ttk.Frame(tf); ck.pack(fill="x", padx=6, pady=(2, 0))
+        ttk.Checkbutton(ck, text="自适应基准：只有浮漂突然下沉才触发（抗水面晃动）",
+                        variable=self.var_adaptive, command=self._on_cfg_change).pack(side="left")
+        self._timing_vars: dict = {}
+        self._timing_entry(tf, "甩竿后先等(ms)", "settle_ms", "跳过飞行/入水动画")
+        self._timing_entry(tf, "判定预热(ms)", "watch_warmup_ms", "这段时间不判定，调大治『太快』")
+        self._timing_entry(tf, "静止阈值", "settle_quiet_mad", "水面老在动就调大")
+        self._timing_entry(tf, "钓上后重甩(ms)", "recast_delay_ms", None)
+        self._timing_entry(tf, "咬钩→收竿(ms)", "bite_reel_delay_ms", "仅全自动")
+        self._timing_entry(tf, "收竿后再甩(ms)", "post_reel_delay_ms", "仅全自动")
 
         # --- 时长 & 热键 & 安全 ---
         of = ttk.LabelFrame(self.root, text="选项")
@@ -207,6 +225,18 @@ class App:
         self.log.tag_config("warn", foreground="#c26a00")
         self.log.tag_config("catch", foreground="#0a7d12")
 
+    def _timing_entry(self, parent, label: str, key: str, hint) -> None:
+        row = ttk.Frame(parent); row.pack(fill="x", padx=6, pady=1)
+        ttk.Label(row, text=label, font=FONT_SMALL, width=13, anchor="w").pack(side="left")
+        var = tk.StringVar(value=str(self.cfg.get(key, cfgmod.DEFAULTS.get(key))))
+        e = ttk.Entry(row, textvariable=var, width=7)
+        e.pack(side="left", padx=4)
+        e.bind("<FocusOut>", lambda ev: self._on_cfg_change())
+        e.bind("<Return>", lambda ev: self._on_cfg_change())
+        if hint:
+            ttk.Label(row, text=hint, font=FONT_SMALL, foreground="#888").pack(side="left")
+        self._timing_vars[key] = var
+
     # ================= 配置应用/保存 =================
     def _apply_loaded_config(self) -> None:
         self._on_topmost()
@@ -239,6 +269,17 @@ class App:
         except (ValueError, TypeError):
             self.cfg["click_hold_ms"] = 90
             self.var_hold.set("90")
+        if hasattr(self, "var_adaptive"):
+            self.cfg["hook_adaptive"] = bool(self.var_adaptive.get())
+        for key, var in getattr(self, "_timing_vars", {}).items():
+            default = cfgmod.DEFAULTS.get(key)
+            is_float = key == "settle_quiet_mad"
+            try:
+                v = float(var.get())
+                self.cfg[key] = v if is_float else max(0, int(v))
+            except (ValueError, TypeError):
+                self.cfg[key] = default
+                var.set(str(default))
 
     def _save(self) -> None:
         cfgmod.save(self.cfg)
@@ -383,6 +424,31 @@ class App:
             except Exception:
                 pass
 
+    def _show_live_frame(self, crop, trig: bool) -> None:
+        """运行时实时显示"正在判定"的那块画面：小区域放大看清，触发时外框变红。"""
+        if crop is None or getattr(crop, "size", 0) == 0:
+            return
+        ppm = None
+        try:
+            ppm = screenshot_to_ppm(crop)
+            img = tk.PhotoImage(file=ppm)
+        except Exception:
+            return
+        finally:
+            if ppm:
+                try:
+                    os.remove(ppm)
+                except OSError:
+                    pass
+        w = img.width()
+        if w < 120:                       # 小区域(鱼钩/浮漂)放大到看得清
+            img = img.zoom(max(1, 120 // max(1, w)))
+        elif w > 340:                     # 大区域缩进窗口
+            img = img.subsample((w // 340) + 1)
+        self._preview_photo = img  # 保引用，否则被 GC 图就没了
+        self.lbl_preview.config(image=img, text="")
+        self.preview_box.config(bg="#e23b3b" if trig else "#3ba55d")
+
     def _show_region_preview(self, crop) -> None:
         if crop is None or getattr(crop, "size", 0) == 0:
             return
@@ -405,6 +471,7 @@ class App:
             img = img.subsample(factor, factor)
         self._preview_photo = img  # 保引用，否则被 GC 图就没了
         self.lbl_preview.config(image=img, text="")
+        self.preview_box.config(bg="#ccc")
 
     def _release_game_cursor(self) -> None:
         """若目标游戏正在前台锁着鼠标，替用户按一次 Esc 让它松开光标。"""
@@ -447,12 +514,15 @@ class App:
     # ================= 事件泵 =================
     def _pump_events(self) -> None:
         latest_metric = None
+        latest_frame = None
         try:
             while True:
                 ev = self.events.get_nowait()
                 t = ev.get("type")
                 if t == "metric":
                     latest_metric = ev
+                elif t == "frame":
+                    latest_frame = ev
                 elif t == "log":
                     self._log(ev.get("msg", ""), ev.get("level", "info"))
                 elif t == "state":
@@ -466,6 +536,8 @@ class App:
             pass
         if latest_metric is not None:
             self._update_meter(latest_metric)
+        if latest_frame is not None:
+            self._show_live_frame(latest_frame.get("img"), latest_frame.get("trig", False))
         self.root.after(50, self._pump_events)
 
     def _handle_hotkey(self, action: str) -> None:
@@ -486,6 +558,7 @@ class App:
         else:
             self.btn_start.state(["!disabled"])
             self._update_meter(None)
+            self.preview_box.config(bg="#ccc")  # 停止后外框恢复中性色
 
     def _update_meter(self, ev) -> None:
         self._last_metric = ev
@@ -511,6 +584,8 @@ class App:
             # 状态匹配：差值≤阈值 = 判定"钩在"。
             self.var_metric.set(f"差值 {val:.1f}  /  阈值 {thr:.1f}"
                                 + ("   ★钩在" if ev.get("trig") else "   （钩不在）"))
+        elif ev.get("warmup"):
+            self.var_metric.set(f"变化 {val:.1f}  /  阈值 {thr:.1f}   （预热中·暂不判定）")
         else:
             self.var_metric.set(f"变化 {val:.1f}  /  阈值 {thr:.1f}"
                                 + ("   ★触发" if ev.get("trig") else ""))

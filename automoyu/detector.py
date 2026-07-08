@@ -89,9 +89,23 @@ class XpBarDetector(BaseDetector):
 
 
 class GenericDetector(BaseDetector):
+    """区域与基准的平均绝对差（MAD）。适合鱼钩/浮漂。
+
+    自适应基准(adaptive)：每一帧没触发时，让基准以 adapt_rate 缓慢向当前帧靠拢。
+    这样水面持续的轻微晃动会被基准"吸收"、不会累积成误判；只有浮漂被咬突然下沉
+    这种"瞬间大变化"才会一下子拉开与基准的差、越过阈值触发。触发的那几帧不更新
+    基准，避免把下沉动作本身也吃掉。关掉 adaptive 时退回原来的"固定基准"行为。
+    """
+
     name = "generic"
 
     _TARGET = 64  # 把区域缩小到最长边 ~64 像素再比较，省算力也更稳
+
+    def __init__(self, sensitivity: int = 5, adaptive: bool = True,
+                 adapt_rate: float = 0.12) -> None:
+        super().__init__(sensitivity)
+        self.adaptive = bool(adaptive)
+        self.adapt_rate = float(max(0.0, min(1.0, adapt_rate)))
 
     def _prep(self, frame_bgra: np.ndarray) -> np.ndarray:
         return _downscale_gray(frame_bgra, self._TARGET)
@@ -107,9 +121,14 @@ class GenericDetector(BaseDetector):
         cur = self._prep(frame_bgra)
         thr = self._threshold()
         if self._baseline is None or self._baseline.shape != cur.shape:
+            self._baseline = cur
             return 0.0, thr, False
         mad = float(np.abs(cur - self._baseline).mean())
-        return mad, thr, mad >= thr
+        trig = mad >= thr
+        if self.adaptive and not trig and self.adapt_rate > 0.0:
+            a = self.adapt_rate
+            self._baseline = (1.0 - a) * self._baseline + a * cur
+        return mad, thr, trig
 
 
 class HookStateDetector(BaseDetector):
@@ -144,12 +163,18 @@ class HookStateDetector(BaseDetector):
         return mad, thr, mad <= thr  # 注意：<= 触发（越像越算"钩在"）
 
 
-def make_detector(target: str, sensitivity: int) -> BaseDetector:
+def make_detector(cfg: dict) -> BaseDetector:
+    target = cfg.get("target", "xp")
+    sensitivity = int(cfg.get("sensitivity", 5))
     if target == "xp":
         return XpBarDetector(sensitivity)
     if target == "hookstate":
         return HookStateDetector(sensitivity)
-    return GenericDetector(sensitivity)
+    return GenericDetector(
+        sensitivity,
+        adaptive=bool(cfg.get("hook_adaptive", True)),
+        adapt_rate=float(cfg.get("hook_adapt_rate", 0.12)),
+    )
 
 
 def auto_locate_xp_bar(screen_bgra: np.ndarray) -> Optional[dict]:

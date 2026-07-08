@@ -27,6 +27,7 @@ class FishingController:
         self._detector = None
         self._session_start = 0.0
         self._grab_warned = False
+        self._last_frame_emit = 0.0
 
     # ---------- 对外控制 ----------
     @property
@@ -45,7 +46,7 @@ class FishingController:
             self._thread.join(timeout=0.5)
         self._stop.clear()
         self._grab_warned = False
-        self._detector = make_detector(self.cfg.get("target", "xp"), self.cfg.get("sensitivity", 5))
+        self._detector = make_detector(self.cfg)
         self._thread = threading.Thread(target=self._loop, name="FisherLoop", daemon=True)
         self._thread.start()
         return True
@@ -194,6 +195,7 @@ class FishingController:
                 continue
             val, thr, is_present = self._detector.measure(frame)
             self._emit({"type": "metric", "value": val, "thr": thr, "trig": is_present})
+            self._emit_frame(frame, is_present)
             if is_present == present:
                 consec += 1
                 if consec >= confirm:
@@ -242,6 +244,7 @@ class FishingController:
             last = frame
             diff = frame_mad(prev, frame)
             self._emit({"type": "metric", "value": diff, "thr": quiet, "trig": False})
+            self._emit_frame(frame, False)
             prev = frame
             if diff <= quiet:
                 consec += 1
@@ -254,11 +257,17 @@ class FishingController:
         return None
 
     def _watch_for_change(self, kind: str) -> bool:
-        """轮询区域，直到检测到变化(返回 True)、超时(False) 或被停止(False)。"""
+        """轮询区域，直到检测到变化(返回 True)、超时(False) 或被停止(False)。
+
+        取基准后先"预热" watch_warmup_ms：这段时间照常喂帧给检测器(让自适应基准
+        贴合水面晃动)，但不允许触发。这样刚甩出去、浮漂还在晃/水花未散那阵不会被
+        误判成"变化"。预热结束才开始真正判定。
+        """
         poll_hz = max(2, int(self.cfg.get("poll_hz", 15)))
         interval = 1.0 / poll_hz
         max_wait = float(self.cfg.get("max_wait_s", 45))
         confirm = max(1, int(self.cfg.get("confirm_frames", 2)))
+        warmup = max(0.0, float(self.cfg.get("watch_warmup_ms", 600)) / 1000.0)
         t0 = time.time()
         consec = 0
         while not self._stop.is_set():
@@ -270,8 +279,12 @@ class FishingController:
                 self._isleep(interval)
                 continue
             val, thr, trig = self._detector.measure(frame)
-            self._emit({"type": "metric", "value": val, "thr": thr, "trig": trig})
-            if trig:
+            in_warmup = (time.time() - t0) < warmup
+            shown = trig and not in_warmup
+            self._emit({"type": "metric", "value": val, "thr": thr,
+                        "trig": shown, "warmup": in_warmup})
+            self._emit_frame(frame, shown)
+            if shown:
                 consec += 1
                 if consec >= confirm:
                     return True
@@ -316,6 +329,17 @@ class FishingController:
         self._emit({"type": "stats"})
 
     # ---------- 工具 ----------
+    def _emit_frame(self, frame, trig: bool = False) -> None:
+        """把当前判定用的画面丢给 GUI 实时显示（限流，最多 ~6fps，省得刷屏）。"""
+        if frame is None:
+            return
+        now = time.time()
+        if now - self._last_frame_emit < 0.15:
+            return
+        self._last_frame_emit = now
+        # mss 会复用内部缓冲，必须拷一份再跨线程传给 GUI。
+        self._emit({"type": "frame", "img": frame.copy(), "trig": bool(trig)})
+
     def _grab(self):
         try:
             return self._cap.grab(self.cfg["region"])
