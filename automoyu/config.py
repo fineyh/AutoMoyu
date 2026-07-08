@@ -7,7 +7,7 @@ from . import paths
 
 DEFAULTS = {
     "mode": "semi",            # "semi" 半自动(只甩竿) | "full" 全自动(甩竿+收竿)
-    "target": "xp",            # "xp" 经验条 | "hook" 鱼钩/浮漂(通用差分)
+    "target": "xp",            # "xp" 经验条 | "hook" 鱼钩/浮漂(通用差分) | "hookstate" 手持竿钩(状态匹配)
     "region": None,            # {left, top, width, height}
     "sensitivity": 5,          # 1..10
     "duration_min": 0,         # 本次时长(分钟)，0=不限
@@ -20,8 +20,9 @@ DEFAULTS = {
     "settle_ms": 1500,         # 甩竿后等浮漂落水、画面稳定
     "recast_delay_ms": 900,    # 检测到钓上后，重新甩竿前的等待
     "max_wait_s": 45,          # 长时间没检测到 -> 保险重甩
+    "cast_confirm_s": 3,       # 手持竿钩：甩竿后等钩离开手上的最长确认时间，超时判定没甩出去
     "poll_hz": 15,             # 检测频率
-    "click_hold_ms": 40,       # 右键按住时长
+    "click_hold_ms": 90,       # 右键按住时长(ms)；<50 可能落在一个游戏刻内被丢弃 -> 甩不出去
     # 全自动专用
     "bite_reel_delay_ms": 60,  # 检测到咬钩 -> 收竿的延迟
     "post_reel_delay_ms": 1200,  # 收竿后再甩竿前的等待

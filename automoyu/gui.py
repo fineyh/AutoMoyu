@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import os
 import queue
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -18,7 +19,7 @@ from . import detector as det
 from . import winio
 from .capture import Capture
 from .fisher import FishingController
-from .region_select import RegionSelector
+from .region_select import RegionSelector, screenshot_to_ppm
 from .stats import Stats, fmt_hms
 
 FONT = ("Microsoft YaHei UI", 9)
@@ -35,7 +36,7 @@ class App:
         self.controller = FishingController(self.cfg, self.stats, emit=self.events.put)
         self.hotkeys = winio.HotkeyManager()
         self._gui_cap = Capture()
-        self._busy = False  # 自动定位/预览倒计时期间
+        self._busy = False  # 自动定位倒计时期间
         self._last_metric = None
 
         self._build_ui()
@@ -96,15 +97,22 @@ class App:
                         variable=self.var_target, command=self._on_target_change).pack(side="left")
         ttk.Radiobutton(row2, text="鱼钩/浮漂", value="hook",
                         variable=self.var_target, command=self._on_target_change).pack(side="left", padx=8)
+        ttk.Radiobutton(row2, text="手持竿钩", value="hookstate",
+                        variable=self.var_target, command=self._on_target_change).pack(side="left")
 
         row3 = ttk.Frame(mf); row3.pack(fill="x", padx=6, pady=3)
         ttk.Button(row3, text="选择区域", width=9, command=self._select_region).pack(side="left")
         self.btn_auto = ttk.Button(row3, text="自动定位经验条", command=self._auto_locate)
         self.btn_auto.pack(side="left", padx=4)
-        ttk.Button(row3, text="预览", width=6, command=self._preview).pack(side="left")
         self.var_region = tk.StringVar(value="区域：未设置")
         ttk.Label(mf, textvariable=self.var_region, font=FONT_SMALL, foreground="#555").pack(
-            anchor="w", padx=6, pady=(0, 4))
+            anchor="w", padx=6, pady=(0, 2))
+        # 选完区域/自动定位后，直接把「刚才截到的那块画面」显示出来，一目了然，不再二次截图。
+        self._preview_photo = None
+        self.lbl_preview = ttk.Label(
+            mf, text="（选择区域或自动定位后，这里显示框到的画面）",
+            font=FONT_SMALL, foreground="#888", anchor="center")
+        self.lbl_preview.pack(fill="x", padx=6, pady=(0, 4))
 
         # --- 灵敏度 + 实时меter ---
         sf = ttk.LabelFrame(self.root, text="灵敏度 & 实时检测")
@@ -156,6 +164,15 @@ class App:
         ew.pack(side="left")
         ew.bind("<FocusOut>", lambda ev: self._on_cfg_change())
 
+        r4 = ttk.Frame(of); r4.pack(fill="x", padx=6, pady=2)
+        ttk.Label(r4, text="甩竿按住(ms)", font=FONT).pack(side="left")
+        self.var_hold = tk.StringVar(value=str(self.cfg.get("click_hold_ms", 90)))
+        eh = ttk.Entry(r4, textvariable=self.var_hold, width=6)
+        eh.pack(side="left", padx=6)
+        eh.bind("<FocusOut>", lambda ev: self._on_cfg_change())
+        ttk.Label(r4, text="太快可能甩不出去；甩不出就调大(建议80–150)",
+                  font=FONT_SMALL, foreground="#888").pack(side="left")
+
         # --- 开始/停止按钮 ---
         bf = ttk.Frame(self.root)
         bf.pack(fill="x", **pad)
@@ -195,7 +212,7 @@ class App:
         self._on_topmost()
         self._refresh_region_label()
         self._refresh_stats()
-        if self.var_target.get() == "hook":
+        if self.var_target.get() != "xp":
             self.btn_auto.state(["disabled"])
         self._log(f"数据目录：{self._data_hint()}", "info")
 
@@ -217,6 +234,11 @@ class App:
         except (ValueError, TypeError):
             self.cfg["duration_min"] = 0
             self.var_dur.set("0")
+        try:
+            self.cfg["click_hold_ms"] = max(10, int(float(self.var_hold.get())))
+        except (ValueError, TypeError):
+            self.cfg["click_hold_ms"] = 90
+            self.var_hold.set("90")
 
     def _save(self) -> None:
         cfgmod.save(self.cfg)
@@ -227,11 +249,11 @@ class App:
 
     def _on_target_change(self) -> None:
         self._on_cfg_change()
-        # 目标切成鱼钩时按钮文案仍可用；仅提示
-        if self.var_target.get() == "hook":
-            self.btn_auto.state(["disabled"])
-        else:
+        # 自动定位仅用于经验条；其它目标禁用该按钮。
+        if self.var_target.get() == "xp":
             self.btn_auto.state(["!disabled"])
+        else:
+            self.btn_auto.state(["disabled"])
 
     def _on_sens(self, _val: str) -> None:
         s = int(round(float(self.scale.get())))
@@ -265,22 +287,56 @@ class App:
         else:
             self._log(f"热键：{toggle}=开始/停止，{stop}=急停", "info")
 
-    # ================= 区域选择 / 自动定位 / 预览 =================
+    # ================= 区域选择 / 自动定位 =================
     def _select_region(self) -> None:
         if self.controller.running:
             messagebox.showinfo("提示", "请先停止再修改区域。")
             return
+        if self._busy:
+            return
+        # 先倒计时让你切回 Minecraft（HUD/经验条可见），再截一张全屏静态图去框选。
+        # 否则游戏一失焦就弹暂停菜单、经验条消失，根本框不到。
+        self._busy = True
+        self.btn_auto.state(["disabled"])
+        self.root.attributes("-topmost", False)
+        self._region_countdown(3)
+
+    def _region_countdown(self, n: int) -> None:
+        if n > 0:
+            self.var_status.set(f"选择区域：{n} 秒后截图，请切到 Minecraft…")
+            self.root.after(1000, lambda: self._region_countdown(n - 1))
+        else:
+            self._grab_then_select()
+
+    def _grab_then_select(self) -> None:
+        ppm_path = None
+        screen = None
+        try:
+            screen = self._gui_cap.grab_screen()
+            ppm_path = screenshot_to_ppm(screen)
+        except Exception as e:
+            self._log(f"截屏失败，改用实时框选（游戏可能已暂停）：{e!r}", "warn")
+            ppm_path = None
+        # 此刻 Minecraft 仍在前台且第一人称锁着鼠标，覆盖层会拿不到指针（要手动按 Esc 才动）。
+        # 我们已拿到冻结截图，主动替用户按一次 Esc 让游戏松开光标，覆盖层就能立刻拖框。
+        self._release_game_cursor()
         self.root.withdraw()
 
         def done(region):
             self.root.deiconify()
+            self._busy = False
+            self.btn_auto.state(["!disabled"] if self.var_target.get() == "xp" else ["disabled"])
             self._on_topmost()
+            self.var_status.set("待机" if not self.controller.running else "运行中")
+            if ppm_path:
+                try:
+                    os.remove(ppm_path)
+                except OSError:
+                    pass
             if region:
-                self.cfg["region"] = region
-                self._save()
-                self._refresh_region_label()
-                self._log(f"区域已设置：{region['width']}×{region['height']}", "info")
-        self.root.after(150, lambda: RegionSelector(self.root, done))
+                self._apply_region(region, screen, "区域已设置")
+
+        self.root.after(120, lambda: RegionSelector(self.root, done, bg_image_path=ppm_path))
 
     def _auto_locate(self) -> None:
         if self.var_target.get() != "xp":
@@ -294,38 +350,70 @@ class App:
         except Exception as e:
             self._log(f"截屏失败：{e!r}", "warn")
             return
+        self._release_game_cursor()
         region = det.auto_locate_xp_bar(screen)
         if region:
-            self.cfg["region"] = region
-            self._save()
-            self._refresh_region_label()
-            self._log(f"已自动定位经验条：{region['width']}×{region['height']}", "info")
+            self._apply_region(region, screen, "已自动定位经验条")
         else:
             self._log("没找到经验条绿色。请确保经验条有一点经验且未被遮挡，或手动框选。", "warn")
             messagebox.showwarning(
                 "未找到", "没找到经验条的绿色。\n请确保：\n· Minecraft 在前台且经验条可见\n"
                 "· 经验条里有一点经验(非空)\n否则请用「选择区域」手动框选。")
 
-    def _preview(self) -> None:
-        if not self.cfg.get("region"):
-            messagebox.showinfo("提示", "请先设置区域。")
-            return
-        self._countdown_grab(self._do_preview, "预览")
+    def _apply_region(self, region: dict, frame_full, source: str) -> None:
+        """保存区域，并直接用「刚才那张截图」裁出对应画面显示出来（不再二次截图）。"""
+        self.cfg["region"] = region
+        self._save()
+        self._refresh_region_label()
+        crop = None
+        if frame_full is not None:
+            try:
+                t, l = int(region["top"]), int(region["left"])
+                crop = frame_full[t:t + int(region["height"]), l:l + int(region["width"])]
+            except Exception:
+                crop = None
+        self._show_region_preview(crop)
+        self._log(f"{source}：区域 {region['width']}×{region['height']}", "info")
+        if crop is not None and getattr(crop, "size", 0) and self.var_target.get() == "xp":
+            try:
+                g = int(det.green_mask(crop).sum())
+                pct = g / (crop.shape[0] * crop.shape[1]) * 100
+                hint = "  ← 偏低，可能没框到绿条" if pct < 1 else ""
+                self._log(f"绿色像素 {g}（{pct:.1f}%）{hint}", "info")
+            except Exception:
+                pass
 
-    def _do_preview(self) -> None:
-        try:
-            frame = self._gui_cap.grab(self.cfg["region"])
-        except Exception as e:
-            self._log(f"预览截图失败：{e!r}", "warn")
+    def _show_region_preview(self, crop) -> None:
+        if crop is None or getattr(crop, "size", 0) == 0:
             return
-        h, w = frame.shape[:2]
-        if self.var_target.get() == "xp":
-            g = int(det.green_mask(frame).sum())
-            pct = g / (w * h) * 100
-            self._log(f"预览：区域 {w}×{h}，绿色像素 {g}（{pct:.1f}%）"
-                      f"{'  ← 偏低,可能没框到绿条' if pct < 1 else ''}", "info")
-        else:
-            self._log(f"预览：已截取区域 {w}×{h}。运行时看下方实时меter调灵敏度。", "info")
+        ppm = None
+        try:
+            ppm = screenshot_to_ppm(crop)
+            img = tk.PhotoImage(file=ppm)
+        except Exception:
+            return
+        finally:
+            if ppm:
+                try:
+                    os.remove(ppm)
+                except OSError:
+                    pass
+        # tk 只能整数倍缩小；把宽度压到 ~340 以内适应窗口。
+        maxw = 340
+        if img.width() > maxw:
+            factor = (img.width() // maxw) + 1
+            img = img.subsample(factor, factor)
+        self._preview_photo = img  # 保引用，否则被 GC 图就没了
+        self.lbl_preview.config(image=img, text="")
+
+    def _release_game_cursor(self) -> None:
+        """若目标游戏正在前台锁着鼠标，替用户按一次 Esc 让它松开光标。"""
+        try:
+            tgt = str(self.cfg.get("target_window", "Minecraft")).lower()
+            if tgt and tgt in winio.get_foreground_title().lower():
+                winio.tap_key(winio.VK_ESCAPE)
+        except Exception:
+            pass
 
     def _countdown_grab(self, action, label: str) -> None:
         """给用户几秒切回 Minecraft，再执行 action（截图类操作）。"""
@@ -419,8 +507,13 @@ class App:
         color = "#e23b3b" if ev.get("trig") else "#3b82e2"
         if fill_w > 0:
             self.meter.create_rectangle(0, 0, fill_w, 20, fill=color, outline="", tags="bar")
-        self.var_metric.set(f"变化 {val:.1f}  /  阈值 {thr:.1f}"
-                            + ("   ★触发" if ev.get("trig") else ""))
+        if self.var_target.get() == "hookstate":
+            # 状态匹配：差值≤阈值 = 判定"钩在"。
+            self.var_metric.set(f"差值 {val:.1f}  /  阈值 {thr:.1f}"
+                                + ("   ★钩在" if ev.get("trig") else "   （钩不在）"))
+        else:
+            self.var_metric.set(f"变化 {val:.1f}  /  阈值 {thr:.1f}"
+                                + ("   ★触发" if ev.get("trig") else ""))
 
     # ================= 数据 =================
     def _tick_stats(self) -> None:

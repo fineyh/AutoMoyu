@@ -53,10 +53,13 @@ class INPUT(ctypes.Structure):
 
 
 INPUT_MOUSE = 0
+INPUT_KEYBOARD = 1
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 MOUSEEVENTF_RIGHTDOWN = 0x0008
 MOUSEEVENTF_RIGHTUP = 0x0010
+KEYEVENTF_KEYUP = 0x0002
+VK_ESCAPE = 0x1B
 
 # ---- 函数签名（64 位下必须显式声明，避免句柄/指针被截断）----
 user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
@@ -104,6 +107,18 @@ def _send(*inputs: INPUT) -> int:
 
 def _mouse_input(flags: int) -> INPUT:
     return INPUT(type=INPUT_MOUSE, u=_INPUTunion(mi=MOUSEINPUT(0, 0, 0, flags, 0, 0)))
+
+
+def _key_input(vk: int, up: bool = False) -> INPUT:
+    flags = KEYEVENTF_KEYUP if up else 0
+    return INPUT(type=INPUT_KEYBOARD, u=_INPUTunion(ki=KEYBDINPUT(vk, 0, flags, 0, 0)))
+
+
+def tap_key(vk: int, hold_s: float = 0.02) -> None:
+    """按下并松开一个虚拟键。用来给游戏发 Esc 等（如让 Bedrock 松开被锁定的鼠标）。"""
+    _send(_key_input(vk))
+    time.sleep(max(0.0, hold_s))
+    _send(_key_input(vk, up=True))
 
 
 def right_click(hold_s: float = 0.04) -> None:

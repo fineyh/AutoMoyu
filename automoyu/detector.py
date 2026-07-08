@@ -26,6 +26,15 @@ def green_mask(frame_bgra: np.ndarray) -> np.ndarray:
     return (g > 90) & (g > r + 25) & (g > b + 25)
 
 
+def _downscale_gray(frame_bgra: np.ndarray, target: int = 64) -> np.ndarray:
+    """BGR->灰度并缩小到最长边 ~target 像素，省算力也更稳。"""
+    r, g, b = _to_rgb(frame_bgra)
+    gray = (0.299 * r + 0.587 * g + 0.114 * b)
+    h, w = gray.shape
+    step = max(1, int(round(max(h, w) / target)))
+    return gray[::step, ::step]
+
+
 class BaseDetector:
     name = "base"
 
@@ -55,9 +64,10 @@ class XpBarDetector(BaseDetector):
         self._area = frame_bgra.shape[0] * frame_bgra.shape[1]
 
     def _threshold(self) -> float:
-        # 灵敏度 1..10 -> 触发所需变化占面积比例 2.0% .. 0.15%
-        frac = np.interp(self.sensitivity, [1, 10], [0.020, 0.0015])
-        return max(4.0, frac * self._area)
+        # 灵敏度 1..10 -> 触发所需变化占面积比例 0.6% .. 0.04%
+        # 钓上一条鱼经验条只涨一小截，阈值太高会导致 meter 跑不满、检测不到、迟迟不重甩。
+        frac = np.interp(self.sensitivity, [1, 10], [0.006, 0.0004])
+        return max(2.0, frac * self._area)
 
     def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
         if self._baseline is None:
@@ -75,12 +85,7 @@ class GenericDetector(BaseDetector):
     _TARGET = 64  # 把区域缩小到最长边 ~64 像素再比较，省算力也更稳
 
     def _prep(self, frame_bgra: np.ndarray) -> np.ndarray:
-        # BGR -> 灰度（简单加权）
-        r, g, b = _to_rgb(frame_bgra)
-        gray = (0.299 * r + 0.587 * g + 0.114 * b)
-        h, w = gray.shape
-        step = max(1, int(round(max(h, w) / self._TARGET)))
-        return gray[::step, ::step]
+        return _downscale_gray(frame_bgra, self._TARGET)
 
     def set_baseline(self, frame_bgra: np.ndarray) -> None:
         self._baseline = self._prep(frame_bgra)
@@ -98,9 +103,43 @@ class GenericDetector(BaseDetector):
         return mad, thr, mad >= thr
 
 
+class HookStateDetector(BaseDetector):
+    """状态匹配：存一张"有钩"参考照，判断当前画面是否≈参考（钩在手上、未甩出）。
+
+    与 GenericDetector 相反：GenericDetector 是"离开基准就触发"，这里
+    triggered=True 表示"当前画面和参考照足够像"，即"钩在"。用于手持鱼竿的钩：
+      钩在  -> 线收回来了/没在钓
+      钩不在 -> 线甩出去了/正在钓
+    """
+
+    name = "hookstate"
+    _TARGET = 64
+
+    def _prep(self, frame_bgra: np.ndarray) -> np.ndarray:
+        return _downscale_gray(frame_bgra, self._TARGET)
+
+    def set_baseline(self, frame_bgra: np.ndarray) -> None:
+        self._baseline = self._prep(frame_bgra)
+
+    def _threshold(self) -> float:
+        # 灵敏度 1..10 -> 匹配容忍度 MAD 4..16（灰度 0..255）。
+        # 越大越"宽松"，越容易判定"钩在"（更快认定钓上/收线回来）。
+        return float(np.interp(self.sensitivity, [1, 10], [4.0, 16.0]))
+
+    def measure(self, frame_bgra: np.ndarray) -> tuple[float, float, bool]:
+        cur = self._prep(frame_bgra)
+        thr = self._threshold()
+        if self._baseline is None or self._baseline.shape != cur.shape:
+            return 999.0, thr, False
+        mad = float(np.abs(cur - self._baseline).mean())
+        return mad, thr, mad <= thr  # 注意：<= 触发（越像越算"钩在"）
+
+
 def make_detector(target: str, sensitivity: int) -> BaseDetector:
     if target == "xp":
         return XpBarDetector(sensitivity)
+    if target == "hookstate":
+        return HookStateDetector(sensitivity)
     return GenericDetector(sensitivity)
 
 

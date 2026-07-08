@@ -76,15 +76,18 @@ class FishingController:
         self._cap = Capture()
         self._session_start = time.time()
         self.stats.start_session(mode, target)
+        target_name = {"xp": "经验条", "hookstate": "手持竿钩"}.get(target, "鱼钩")
         self._emit({"type": "state", "running": True, "phase": "运行中"})
         self._emit({"type": "log", "level": "info",
-                    "msg": f"开始（{'全自动' if mode == 'full' else '半自动'} / {'经验条' if target == 'xp' else '鱼钩'}）"})
+                    "msg": f"开始（{'全自动' if mode == 'full' else '半自动'} / {target_name}）"})
         try:
             while not self._stop.is_set():
                 if self._duration_reached():
                     self._emit({"type": "log", "level": "info", "msg": "已达到设定时长，自动停止。"})
                     break
-                if mode == "full":
+                if target == "hookstate":
+                    self._cycle_hook_state()
+                elif mode == "full":
                     self._cycle_full()
                 else:
                     self._cycle_semi()
@@ -145,6 +148,67 @@ class FishingController:
             self._on_catch()
             self._isleep(self.cfg.get("post_reel_delay_ms", 1200) / 1000.0)
 
+    # ---------- 手持竿钩：看"状态"（有钩=没在钓 -> 甩竿） ----------
+    def _cycle_hook_state(self) -> None:
+        # 参考照 = 手持鱼竿、钩可见、未甩出的画面。
+        # 首次进入时抓取；之后每次钓上后刷新，自动适应昼夜/天气光照变化。
+        if not self._detector.has_baseline:
+            ref = self._grab()
+            if ref is None:
+                self._isleep(0.3)
+                return
+            self._detector.set_baseline(ref)
+            self._emit({"type": "log", "level": "info",
+                        "msg": "已记住『有钩』参考画面（请确保此刻手持鱼竿、未甩出）。"})
+
+        if not self._do_cast():
+            return
+
+        # 阶段一：确认真的甩出去了（钩离开参考状态）。超时未离开 = 可能没甩出去，返回重甩。
+        self._emit({"type": "state", "running": True, "phase": "确认甩出"})
+        cast_ok = self._wait_hook(present=False, max_wait=float(self.cfg.get("cast_confirm_s", 3)))
+        if self._stop.is_set():
+            return
+        if not cast_ok:
+            self._emit({"type": "log", "level": "warn", "msg": "钩仍在手上，疑似没甩出去，重试。"})
+            self._isleep(0.2)
+            return
+
+        # 阶段二：等钩重新出现（钓上、收线回来）。
+        self._emit({"type": "state", "running": True, "phase": "等钓上"})
+        if self._wait_hook(present=True, max_wait=float(self.cfg.get("max_wait_s", 45))):
+            cur = self._grab()  # 刷新参考，适应光照/天气变化
+            if cur is not None:
+                self._detector.set_baseline(cur)
+            self._on_catch()
+            self._isleep(self.cfg.get("recast_delay_ms", 900) / 1000.0)
+
+    def _wait_hook(self, present: bool, max_wait: float) -> bool:
+        """轮询，直到"钩在(present=True)/钩不在(present=False)"稳定成立(True)、
+        超时(False) 或被停止(False)。"""
+        poll_hz = max(2, int(self.cfg.get("poll_hz", 15)))
+        interval = 1.0 / poll_hz
+        confirm = max(1, int(self.cfg.get("confirm_frames", 2)))
+        t0 = time.time()
+        consec = 0
+        while not self._stop.is_set():
+            if time.time() - t0 > max_wait:
+                return False
+            frame = self._grab()
+            if frame is None:
+                self._isleep(interval)
+                continue
+            val, thr, is_present = self._detector.measure(frame)
+            self._emit({"type": "metric", "value": val, "thr": thr, "trig": is_present})
+            if is_present == present:
+                consec += 1
+                if consec >= confirm:
+                    return True
+            else:
+                consec = 0
+            self._isleep(interval)
+        return False
+
     def _watch_for_change(self, kind: str) -> bool:
         """轮询区域，直到检测到变化(返回 True)、超时(False) 或被停止(False)。"""
         poll_hz = max(2, int(self.cfg.get("poll_hz", 15)))
@@ -179,7 +243,7 @@ class FishingController:
     def _click_action(self, label: str) -> bool:
         if not self._wait_focus():
             return False
-        winio.right_click(hold_s=self.cfg.get("click_hold_ms", 40) / 1000.0)
+        winio.right_click(hold_s=self.cfg.get("click_hold_ms", 90) / 1000.0)
         self._emit({"type": "log", "level": "info", "msg": label})
         return True
 
