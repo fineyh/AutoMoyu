@@ -127,7 +127,7 @@ class App:
         ttk.Label(mf, textvariable=self.var_region, font=FONT_SMALL, foreground="#555").pack(
             anchor="w", padx=6, pady=(0, 2))
         # 选完区域/自动定位后显示框到的画面；运行时这里会实时刷新"正在判定"的画面，
-        # 外框绿=正常、红=判定为变化/触发，方便你一眼看出判定快了还是慢了。
+        # 外框绿=正常、红=判定为变化/触发，方便一眼看出判定快了还是慢了。
         self._preview_photo = None
         self.preview_box = tk.Frame(mf, bg="#ccc", bd=0)
         self.preview_box.pack(padx=6, pady=(0, 4))
@@ -412,7 +412,7 @@ class App:
             return
         if self._busy:
             return
-        # 先倒计时让你切回 Minecraft（HUD/经验条可见），再截一张全屏静态图去框选。
+        # 先倒计时留出时间切回 Minecraft（HUD/经验条可见），再截一张全屏静态图去框选。
         # 否则游戏一失焦就弹暂停菜单、经验条消失，根本框不到。
         self._busy = True
         self.btn_auto.state(["disabled"])
