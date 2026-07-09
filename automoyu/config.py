@@ -18,6 +18,7 @@ DEFAULTS = {
     "bobber_crop_x0": 0.38, "bobber_crop_x1": 0.62,  # 左右：中央窄带
     "bobber_crop_y0": 0.28, "bobber_crop_y1": 0.66,  # 上下：中部一长条
     "bobber_red_weight": 2.0,  # 打分里"新出现的红顶"的权重：浮漂红白顶是最可靠特征，加大它让有红时更笃定
+    "bobber_orb_suppress": True,  # 屏蔽经验球：钓到鱼后飞来的黄绿光球消失时会误导定位，按颜色抠掉(浮漂红顶不受影响)
     # 浮漂在判定小框里的落点(占框宽/高的比例)：默认摆在中上方，框内浮漂下方留空间捕捉下沉/溅水
     "bobber_anchor_x": 0.5, "bobber_anchor_y": 0.2,
     "sensitivity": 5,          # 1..10，可带 0.1 小数（细调）

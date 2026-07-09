@@ -234,6 +234,7 @@ class FishingController:
             red_weight=float(self.cfg.get("bobber_red_weight", 2.0)),
             anchor_x=float(self.cfg.get("bobber_anchor_x", 0.5)),
             anchor_y=float(self.cfg.get("bobber_anchor_y", 0.2)),
+            suppress_orb=bool(self.cfg.get("bobber_orb_suppress", True)),
             debug=dbg,
         )
         if not box:

@@ -27,6 +27,42 @@ def green_mask(frame_bgra: np.ndarray) -> np.ndarray:
     return (g > 90) & (g > r + 25) & (g > b + 25)
 
 
+def bobber_red(frame_bgra: np.ndarray) -> np.ndarray:
+    """浮漂红顶的『纯红强度』：R 要大到超过两倍的 max(G,B) 才算数。
+
+    浮漂顶端是很饱和的纯红（实测 RGB≈208,41,41 / 135,20,19，G≈B 且都远低于 R）。
+    用 R-2·max(G,B) 而非 R-max(G,B)：后者把橙色(火把火焰、夕阳、暖色地形 R 高 G 中)
+    也算成红、到处加分，正是"定位到的不是浮漂"的旧诱因之一；前者要求 R 至少是另两
+    通道的两倍，橙/黄/暖色地形/经验球黄绿全部落到 0，只剩浮漂这种纯红存活。
+    """
+    r, g, b = _to_rgb(frame_bgra)
+    return np.maximum(0, r - 2 * np.maximum(g, b)).astype(np.float64)
+
+
+def xp_orb_mask(frame_bgra: np.ndarray) -> np.ndarray:
+    """经验球（钓到鱼后飞向玩家的光球）的颜色掩膜。
+
+    经验球在绿↔黄之间脉动闪烁，但两个相位都有共同特征：G 很亮、B 很低（黄=R,G 高
+    B 低；绿=G 高 R 中 B 低）。用『G 亮且明显高于 B』抓它，能覆盖整个闪烁周期。
+    浮漂红顶 G 很低、水面/天空 B 高，都不会命中——所以屏蔽经验球不会误伤浮漂。
+    """
+    r, g, b = _to_rgb(frame_bgra)
+    return (g > 150) & (g > b + 40) & (r > b + 20)
+
+
+def _dilate_bool(mask: np.ndarray, iters: int) -> np.ndarray:
+    """对布尔掩膜做 4 邻域膨胀 iters 次（不依赖 scipy/cv2），盖住经验球外围光晕。"""
+    m = mask
+    for _ in range(max(0, int(iters))):
+        d = m.copy()
+        d[:-1] |= m[1:]
+        d[1:] |= m[:-1]
+        d[:, :-1] |= m[:, 1:]
+        d[:, 1:] |= m[:, :-1]
+        m = d
+    return m
+
+
 def _downscale_gray(frame_bgra: np.ndarray, target: int = 64) -> np.ndarray:
     """BGR->灰度并缩小到最长边 ~target 像素，省算力也更稳。"""
     r, g, b = _to_rgb(frame_bgra)
@@ -260,6 +296,7 @@ def auto_locate_bobber(
     red_weight: float = 2.0,
     anchor_x: float = 0.5,
     anchor_y: float = 0.2,
+    suppress_orb: bool = True,
     debug: Optional[dict] = None,
 ) -> Optional[dict]:
     """比较甩竿前/后两帧，在"新出现且最集中"的地方框出浮漂，自动给出判定小框。
@@ -294,6 +331,11 @@ def auto_locate_bobber(
             的加权重心」作为浮漂位置(优先红顶)，默认把它摆在框的「中上方」(x=0.5 水平居中,
             y=0.2 靠上)，这样框内浮漂下方留出足够空间去捕捉咬钩时浮漂下沉/溅水的向下位移。
             (0,0)=左上角。
+    suppress_orb: 钓到鱼后经验球会飞向玩家；它是又大又亮的黄绿光球，甩竿前(before)在、
+            落水后(after)已飞走，两帧相减在它原处炸出一大团 diff——比小小的浮漂还大，
+            滑窗合计会被它拿下，把判定框钉到经验球飞过的地方(本函数近期的主要误定位)。
+            经验球绿↔黄闪烁但都是"G 亮 B 低"，据此按颜色把它(before|after 命中处，稍加
+            膨胀盖住光晕)从打分图里清零。浮漂红顶 G 低，绝不会被这层屏蔽误伤。
     debug:  传入一个 dict 时，会被就地填上打分图/选中窗口/比值等信息，供上层把
             「定位依据」渲染成图保存下来排查（见 render_bobber_debug）。即使这一竿
             没定位到(返回 None) 也会填，方便看清它到底盯上了哪块。
@@ -313,14 +355,21 @@ def auto_locate_bobber(
     gray_a = 0.299 * ra + 0.587 * ga + 0.114 * ba
     gray_b = 0.299 * rb + 0.587 * gb + 0.114 * bb
     diff = np.abs(gray_b - gray_a)
-    # 只认"新出现的红"：浮漂红顶落在水面上，是 after 比 before 多出来的红色度。
-    # 若用 after 的绝对红色度(rb - max(gb,bb))，静止的暖色地形(沙/红沙/泥/下界岩)、
-    # 夕阳天空、手臂等会到处恒定加分，把窗口拉到浮漂以外的红色区域——这正是
-    # "定位到的不是浮漂"的主因。改成 (after 红 - before 红)：静止暖色两帧相同 -> 0。
-    red_a = np.maximum(0, ra - np.maximum(ga, ba))
-    red_b = np.maximum(0, rb - np.maximum(gb, bb))
-    red_new = np.maximum(0, red_b - red_a).astype(np.float64)  # 新出现的红顶
+    # 只认"新出现的纯红"：浮漂红顶落在水面上，是 after 比 before 多出来的纯红度。
+    # 纯红(bobber_red = R-2·max(G,B))只认浮漂那种饱和红；橙色火把/夕阳/暖色地形/经验球
+    # 黄绿都=0，不再到处加分——这些"非浮漂的红"正是旧的绝对红色度带来的误定位源头。
+    # 再取 (after 纯红 - before 纯红)：静止的红墙/红沙两帧相同 -> 0，只留下浮漂这个新目标。
+    red_a = bobber_red(before_bgra)
+    red_b = bobber_red(after_bgra)
+    red_new = np.maximum(0, red_b - red_a)  # 新出现的红顶
     score = diff + red_weight * red_new
+
+    # 屏蔽经验球：它消失时在原处留下的一大团 diff 否则会把滑窗吸走(见 suppress_orb 说明)。
+    # 按颜色抠掉(before|after 命中、膨胀盖住光晕)；浮漂红顶 G 低不会被误伤。
+    if suppress_orb:
+        orb = _dilate_bool(xp_orb_mask(before_bgra) | xp_orb_mask(after_bgra),
+                           max(4, box // 10))
+        score[orb] = 0.0
 
     # 抠掉右下角手持鱼竿区：甩竿的运动差+竿身红色否则会把窗口牢牢吸到这儿。
     hx = int(W * hand_frac_x) if 0.0 < hand_frac_x < 1.0 else W
