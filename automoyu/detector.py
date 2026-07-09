@@ -290,9 +290,10 @@ def auto_locate_bobber(
             有红时的定位更笃定(与噪声拉开差距)；红被水色冲淡/看不见时该项≈0、不影响，
             此时仍靠画面差分在窄带里定位。不做"必须有红"的硬门槛——实测浮漂偏小或逆光
             时红顶极弱(几乎为 0)，硬要求红会把这些本可定位的竿误判成没浮漂而空甩。
-    anchor_x/anchor_y: 浮漂在判定小框里的落点(占框宽/高的比例)。滑窗命中的位置≈浮漂
-            所在，默认把它摆在框的「中上方」(x=0.5 水平居中, y=0.2 靠上)，这样框内浮漂
-            下方留出足够空间去捕捉咬钩时浮漂下沉/溅水的向下位移。(0,0)=左上角。
+    anchor_x/anchor_y: 浮漂在判定小框里的落点(占框宽/高的比例)。以命中方窗内「新增亮点
+            的加权重心」作为浮漂位置(优先红顶)，默认把它摆在框的「中上方」(x=0.5 水平居中,
+            y=0.2 靠上)，这样框内浮漂下方留出足够空间去捕捉咬钩时浮漂下沉/溅水的向下位移。
+            (0,0)=左上角。
     debug:  传入一个 dict 时，会被就地填上打分图/选中窗口/比值等信息，供上层把
             「定位依据」渲染成图保存下来排查（见 render_bobber_debug）。即使这一竿
             没定位到(返回 None) 也会填，方便看清它到底盯上了哪块。
@@ -346,10 +347,26 @@ def auto_locate_bobber(
     mean = (float(s.sum()) / searchable) if searchable > 0 else 0.0
     ratio = (best_avg / mean) if mean > 1e-6 else 0.0
 
-    # 滑窗命中的窗口左上角≈浮漂位置。按 anchor 把浮漂摆到框内指定落点(默认中上方)：
-    # 令 hit 点落在框的 (anchor_x, anchor_y) 处，即把框整体平移。
-    hit_x = wx * ds
-    hit_y = wy * ds
+    # 命中方窗只说明「浮漂大致在这一块」，方窗左上角并不是浮漂本身：鱼线/水花的 diff
+    # 会把最强方窗整体往一侧拉(线一般拖向鱼竿在右下)，若直接拿方窗角点当浮漂，框就会
+    # 偏到浮漂一侧(实测浮漂贴在框右缘)。改取命中方窗内「新增亮点」的加权重心当浮漂位置：
+    #   - 红白顶(red_new)是浮漂最干净、最集中的特征，红够明显时用红顶重心；
+    #   - 逆光/浮漂偏小导致红顶≈0 时，退回总打分(diff+红)的重心。
+    # 线是细而暗、且不红的，按面积加权后拉不动重心，浮漂因此稳稳落在框心。
+    wy0, wx0 = wy * ds, wx * ds
+    wy1, wx1 = min(H, wy0 + box), min(W, wx0 + box)
+    red_win = red_new[wy0:wy1, wx0:wx1]
+    weight = red_win if float(red_win.max(initial=0.0)) >= 20.0 else score[wy0:wy1, wx0:wx1]
+    wsum = float(weight.sum())
+    if wsum > 1e-6:
+        yy, xx = np.mgrid[0:weight.shape[0], 0:weight.shape[1]]
+        hit_x = wx0 + float((weight * xx).sum()) / wsum
+        hit_y = wy0 + float((weight * yy).sum()) / wsum
+    else:  # 兜底：方窗里没有可用信号(极少见)，退回方窗中心
+        hit_x = wx0 + box / 2.0
+        hit_y = wy0 + box / 2.0
+    # 令 hit(浮漂重心) 落在判定框的 (anchor_x, anchor_y) 处：默认水平居中、竖直靠上，
+    # 给咬钩时浮漂向下划出的位移留足下方空间(弱化背景变化、放大浮漂自身变化)。
     left_rel = int(min(max(0, hit_x - rect_w * anchor_x), max(0, W - rect_w)))
     top_rel = int(min(max(0, hit_y - rect_h * anchor_y), max(0, H - rect_h)))
     if debug is not None:
