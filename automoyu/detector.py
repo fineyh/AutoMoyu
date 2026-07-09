@@ -253,6 +253,7 @@ def auto_locate_bobber(
     after_bgra: np.ndarray,
     origin: tuple[int, int] = (0, 0),
     box: int = 64,
+    width_frac: float = 1.0,
     min_ratio: float = 1.8,
     hand_frac_x: float = 0.66,
     hand_frac_y: float = 0.5,
@@ -281,6 +282,10 @@ def auto_locate_bobber(
     origin: after 帧左上角在屏幕上的绝对坐标 (left, top)，用于把结果换算成屏幕绝对框。
     hand_frac_x/hand_frac_y: 右下角手持竿排除区的起点（占宽/高的比例）。设 >=1 可关闭。
             上层已把搜索区收成中央窄带、天然排除了手持竿，故默认传 1.0 关闭本排除。
+    width_frac: 判定小框的宽度占其高度(box)的比例。找浮漂时仍用 box×box 的方窗定位
+            "新东西最扎堆"处，但最终贴出的判定框把左右收窄成 box·width_frac 的竖长矩形
+            (以命中点水平居中)，只略宽于浮漂本身——两侧的水面/岸边噪声不再进判定区，
+            浮漂下沉更容易越过阈值。=1.0 时退回原来的正方形框。
     red_weight: "新出现的红顶"在打分里的权重。浮漂红白顶是最可靠的特征，加大它能让
             有红时的定位更笃定(与噪声拉开差距)；红被水色冲淡/看不见时该项≈0、不影响，
             此时仍靠画面差分在窄带里定位。不做"必须有红"的硬门槛——实测浮漂偏小或逆光
@@ -298,6 +303,9 @@ def auto_locate_bobber(
         return None
     H, W = after_bgra.shape[:2]
     box = int(max(8, min(box, H, W)))
+    # 判定框：高度=box，宽度收窄成 box·width_frac（只略宽于浮漂）。搜索仍用方窗 box×box。
+    rect_h = box
+    rect_w = int(max(8, min(round(box * float(width_frac)), W)))
 
     ra, ga, ba = _to_rgb(before_bgra)
     rb, gb, bb = _to_rgb(after_bgra)
@@ -342,10 +350,11 @@ def auto_locate_bobber(
     # 令 hit 点落在框的 (anchor_x, anchor_y) 处，即把框整体平移。
     hit_x = wx * ds
     hit_y = wy * ds
-    left_rel = int(min(max(0, hit_x - box * anchor_x), max(0, W - box)))
-    top_rel = int(min(max(0, hit_y - box * anchor_y), max(0, H - box)))
+    left_rel = int(min(max(0, hit_x - rect_w * anchor_x), max(0, W - rect_w)))
+    top_rel = int(min(max(0, hit_y - rect_h * anchor_y), max(0, H - rect_h)))
     if debug is not None:
-        debug.update({"score": s, "ds": int(ds), "box": int(box),
+        debug.update({"score": s, "ds": int(ds),
+                      "box_w": int(rect_w), "box_h": int(rect_h),
                       "left_rel": left_rel, "top_rel": top_rel,
                       "ratio": float(ratio), "best_avg": float(best_avg),
                       "mean": float(mean), "min_ratio": float(min_ratio)})
@@ -354,7 +363,7 @@ def auto_locate_bobber(
         return None
     ox, oy = origin
     return {"left": int(ox + left_rel), "top": int(oy + top_rel),
-            "width": int(box), "height": int(box)}
+            "width": int(rect_w), "height": int(rect_h)}
 
 
 def render_bobber_debug(after_bgra: np.ndarray, debug: dict) -> np.ndarray:
@@ -386,12 +395,13 @@ def render_bobber_debug(after_bgra: np.ndarray, debug: dict) -> np.ndarray:
     out = np.clip(out, 0, 255).astype(np.uint8)
 
     # 画选中框（亮绿，2px 边）。
-    box = int(debug.get("box", 0))
+    box_w = int(debug.get("box_w", debug.get("box", 0)))
+    box_h = int(debug.get("box_h", debug.get("box", 0)))
     lr = int(debug.get("left_rel", 0))
     tr = int(debug.get("top_rel", 0))
-    if box > 0:
+    if box_w > 0 and box_h > 0:
         x0, y0 = max(0, lr), max(0, tr)
-        x1, y1 = min(W, lr + box), min(H, tr + box)
+        x1, y1 = min(W, lr + box_w), min(H, tr + box_h)
         green = np.array([0, 255, 0], dtype=np.uint8)  # BGR
         t = 2
         if x1 > x0 and y1 > y0:

@@ -228,6 +228,7 @@ class FishingController:
             before, after,
             origin=(search["left"], search["top"]),
             box=int(self.cfg.get("bobber_box", 64)),
+            width_frac=float(self.cfg.get("bobber_width_frac", 0.5)),
             # 中央窄带已排除右下角手持竿，无需再单独抠角(设 >=1 关闭该排除)。
             hand_frac_x=1.0, hand_frac_y=1.0,
             red_weight=float(self.cfg.get("bobber_red_weight", 2.0)),

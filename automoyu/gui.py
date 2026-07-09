@@ -30,7 +30,8 @@ FONT_SMALL = ("Microsoft YaHei UI", 8)
 class App:
     # 这些微调项按小数(float)读取；其余 _timing_vars 里的键按非负整数读取。
     _FLOAT_KEYS = {"settle_quiet_mad", "bobber_crop_x0", "bobber_crop_x1",
-                   "bobber_crop_y0", "bobber_crop_y1", "bobber_red_weight"}
+                   "bobber_crop_y0", "bobber_crop_y1", "bobber_red_weight",
+                   "bobber_width_frac"}
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -168,7 +169,7 @@ class App:
                         variable=self.var_adaptive, command=self._on_cfg_change).pack(side="left")
         self._timing_vars: dict = {}
         self._timing_entry(tf, "甩竿后先等(ms)", "settle_ms", "跳过飞行/入水动画")
-        self._timing_entry(tf, "浮漂框大小(px)", "bobber_box", "自动定位浮漂时贴的小框边长")
+        self._timing_entry(tf, "浮漂框高度(px)", "bobber_box", "判定框高度；宽度由下方『框宽比例』收窄")
         self._timing_entry(tf, "判定预热(ms)", "watch_warmup_ms", "这段时间不判定，调大治『太快』")
         self._timing_entry(tf, "静止阈值", "settle_quiet_mad", "水面老在动就调大")
         self._timing_entry(tf, "钓上后重甩(ms)", "recast_delay_ms", None)
@@ -189,6 +190,10 @@ class App:
         rcw = ttk.Frame(bb); rcw.pack(fill="x", padx=6, pady=(1, 3))
         self._frac_field(rcw, "红顶权重", "bobber_red_weight", width=6)
         ttk.Label(rcw, text="红白顶加权，越大越优先锁红处（默认2.0）",
+                  font=FONT_SMALL, foreground="#888", wraplength=230, justify="left").pack(side="left")
+        rcw2 = ttk.Frame(bb); rcw2.pack(fill="x", padx=6, pady=(0, 3))
+        self._frac_field(rcw2, "框宽比例", "bobber_width_frac", width=6)
+        ttk.Label(rcw2, text="判定框宽÷高：<1 把左右收窄成略宽于浮漂的竖矩形（默认0.5）",
                   font=FONT_SMALL, foreground="#888", wraplength=230, justify="left").pack(side="left")
 
         # --- 时长 & 热键 & 安全 ---
