@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import queue
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import font as tkfont, messagebox, ttk
 
 from . import config as cfgmod
 from . import detector as det
@@ -22,9 +22,12 @@ from .fisher import FishingController
 from .region_select import RegionSelector, screenshot_to_ppm
 from .stats import Stats, fmt_hms
 
-FONT = ("Microsoft YaHei UI", 9)
-FONT_BIG = ("Microsoft YaHei UI", 15, "bold")
-FONT_SMALL = ("Microsoft YaHei UI", 8)
+FONT_FAMILY = "Microsoft YaHei UI"
+# 各字号在 ui_scale=1.0 时的"基准像素高度"；实际大小 = 基准 × ui_scale。
+# 存成负数交给 Tk 当"像素"用，绕开 tk scaling，跨 DPI 更可预测。全部走命名字体，
+# 改一次 self.f_* 的 size，所有引用它的控件(含 ttk 样式)立即随之变大/变小。
+BASE_PX = {"small": 12, "normal": 14, "bold": 14, "title": 18, "big": 22}
+UI_SCALE_MIN, UI_SCALE_MAX = 0.8, 3.0
 
 
 class App:
@@ -54,10 +57,8 @@ class App:
     # ================= UI 构建 =================
     def _build_ui(self) -> None:
         self.root.title("AutoMoyu 🎣")
-        self.root.geometry("390x930")
-        self.root.minsize(370, 640)
         try:
-            self.root.tk.call("tk", "scaling", 1.0)
+            self.root.tk.call("tk", "scaling", 1.0)  # 固定 1pt≈1px，字号完全交给 ui_scale 掌控
         except Exception:
             pass
 
@@ -67,27 +68,21 @@ class App:
         except Exception:
             pass
 
+        # 字号：按 DPI/配置算出倍率 -> 建命名字体 -> 灌进 ttk 样式，全界面统一放大。
+        self.ui_scale = self._compute_scale()
+        self._init_fonts()
+        self._apply_style_fonts(style)
+
         pad = {"padx": 8, "pady": 3}
 
-        # --- 顶部：标题 + 置顶 ---
-        top = ttk.Frame(self.root)
-        top.pack(fill="x", **pad)
-        ttk.Label(top, text="AutoMoyu 摸鱼助手", font=("Microsoft YaHei UI", 12, "bold")).pack(side="left")
-        self.var_top = tk.BooleanVar(value=self.cfg.get("always_on_top", True))
-        ttk.Checkbutton(top, text="📌置顶", variable=self.var_top,
-                        command=self._on_topmost).pack(side="right")
-
-        # --- 状态灯 ---
-        st = ttk.Frame(self.root)
-        st.pack(fill="x", **pad)
-        self.dot = tk.Canvas(st, width=14, height=14, highlightthickness=0)
-        self.dot.pack(side="left")
-        self._dot_id = self.dot.create_oval(2, 2, 12, 12, fill="#888", outline="")
-        self.var_status = tk.StringVar(value="待机")
-        ttk.Label(st, textvariable=self.var_status, font=FONT).pack(side="left", padx=6)
+        # 顶部标题栏(含字号 A-/A+)与底部开始/停止固定不滚动，界面再长也始终可见；
+        # 其余设置统一放进中间的可滚动区，彻底解决"下面看不到"。
+        self._build_topbar(pad)
+        self._build_actionbar(pad)
+        self.body = self._build_scroll_body(style)
 
         # --- 模式 & 目标 ---
-        mf = ttk.LabelFrame(self.root, text="模式 / 监控目标")
+        mf = ttk.LabelFrame(self.body, text="模式 / 监控目标")
         mf.pack(fill="x", **pad)
         self.var_mode = tk.StringVar(value=self.cfg.get("mode", "semi"))
         row1 = ttk.Frame(mf); row1.pack(fill="x", padx=6, pady=2)
@@ -124,7 +119,7 @@ class App:
         self.btn_auto = ttk.Button(row3, text="自动定位经验条", command=self._auto_locate)
         self.btn_auto.pack(side="left", padx=4)
         self.var_region = tk.StringVar(value="区域：未设置")
-        ttk.Label(mf, textvariable=self.var_region, font=FONT_SMALL, foreground="#555").pack(
+        ttk.Label(mf, textvariable=self.var_region, font=self.f_small, foreground="#555").pack(
             anchor="w", padx=6, pady=(0, 2))
         # 选完区域/自动定位后显示框到的画面；运行时这里会实时刷新"正在判定"的画面，
         # 外框绿=正常、红=判定为变化/触发，方便一眼看出判定快了还是慢了。
@@ -133,23 +128,23 @@ class App:
         self.preview_box.pack(padx=6, pady=(0, 4))
         self.lbl_preview = ttk.Label(
             self.preview_box, text="（选择区域或自动定位后，这里显示框到的画面）",
-            font=FONT_SMALL, foreground="#888", anchor="center")
+            font=self.f_small, foreground="#888", anchor="center")
         self.lbl_preview.pack(padx=2, pady=2)
 
         # --- 灵敏度 + 实时меter ---
-        sf = ttk.LabelFrame(self.root, text="灵敏度 & 实时检测")
+        sf = ttk.LabelFrame(self.body, text="灵敏度 & 实时检测")
         sf.pack(fill="x", **pad)
         srow = ttk.Frame(sf); srow.pack(fill="x", padx=6, pady=2)
-        ttk.Label(srow, text="灵敏度", font=FONT).pack(side="left")
+        ttk.Label(srow, text="灵敏度", font=self.f_normal).pack(side="left")
         self.var_sens = tk.DoubleVar(value=float(self.cfg.get("sensitivity", 5)))
         self.scale = ttk.Scale(srow, from_=1, to=10, orient="horizontal",
                                command=self._on_sens)
         self.scale.pack(side="left", fill="x", expand=True, padx=6)
-        self.lbl_sens = ttk.Label(srow, text=f"{self.var_sens.get():.1f}", width=4, font=FONT)
+        self.lbl_sens = ttk.Label(srow, text=f"{self.var_sens.get():.1f}", width=4, font=self.f_normal)
         self.lbl_sens.pack(side="left")
         # 滑块下方直接显示这个灵敏度对应的『具体触发阈值』，不用再猜"几级=多少"
         self.var_sens_thr = tk.StringVar(value="")
-        ttk.Label(sf, textvariable=self.var_sens_thr, font=FONT_SMALL,
+        ttk.Label(sf, textvariable=self.var_sens_thr, font=self.f_small,
                   foreground="#888").pack(anchor="w", padx=6)
         self.scale.set(self.var_sens.get())  # 最后再 set（会触发 _on_sens 填好阈值文本）
 
@@ -158,10 +153,10 @@ class App:
         self.meter.pack(fill="x", padx=6, pady=2)
         self.meter.bind("<Configure>", lambda e: self._draw_meter())
         self.var_metric = tk.StringVar(value="变化 —  /  阈值 —")
-        ttk.Label(sf, textvariable=self.var_metric, font=FONT_SMALL).pack(anchor="w", padx=6, pady=(0, 4))
+        ttk.Label(sf, textvariable=self.var_metric, font=self.f_small).pack(anchor="w", padx=6, pady=(0, 4))
 
         # --- 时序微调（甩出 → 判定）---
-        tf = ttk.LabelFrame(self.root, text="时序微调（甩出 → 判定）")
+        tf = ttk.LabelFrame(self.body, text="时序微调（甩出 → 判定）")
         tf.pack(fill="x", **pad)
         self.var_adaptive = tk.BooleanVar(value=bool(self.cfg.get("hook_adaptive", True)))
         ck = ttk.Frame(tf); ck.pack(fill="x", padx=6, pady=(2, 0))
@@ -177,10 +172,10 @@ class App:
         self._timing_entry(tf, "收竿后再甩(ms)", "post_reel_delay_ms", "仅全自动")
 
         # --- 自动定位浮漂：中央搜索带 & 红色加权 ---
-        bb = ttk.LabelFrame(self.root, text="定位浮漂：中央搜索带 & 红色加权")
+        bb = ttk.LabelFrame(self.body, text="定位浮漂：中央搜索带 & 红色加权")
         bb.pack(fill="x", **pad)
         ttk.Label(bb, text="浮漂只在准星附近的中央一长条里找（占窗口比例 0–1），带越窄越少误定位。",
-                  font=FONT_SMALL, foreground="#888", wraplength=360, justify="left").pack(
+                  font=self.f_small, foreground="#888", wraplength=360, justify="left").pack(
                       anchor="w", padx=6, pady=(2, 0))
         rcx = ttk.Frame(bb); rcx.pack(fill="x", padx=6, pady=1)
         self._frac_field(rcx, "左", "bobber_crop_x0")
@@ -190,28 +185,28 @@ class App:
         rcw = ttk.Frame(bb); rcw.pack(fill="x", padx=6, pady=(1, 3))
         self._frac_field(rcw, "红顶权重", "bobber_red_weight", width=6)
         ttk.Label(rcw, text="红白顶加权，越大越优先锁红处（默认2.0）",
-                  font=FONT_SMALL, foreground="#888", wraplength=230, justify="left").pack(side="left")
+                  font=self.f_small, foreground="#888", wraplength=230, justify="left").pack(side="left")
         rcw2 = ttk.Frame(bb); rcw2.pack(fill="x", padx=6, pady=(0, 3))
         self._frac_field(rcw2, "框宽比例", "bobber_width_frac", width=6)
         ttk.Label(rcw2, text="判定框宽÷高：<1 把左右收窄成略宽于浮漂的竖矩形（默认0.5）",
-                  font=FONT_SMALL, foreground="#888", wraplength=230, justify="left").pack(side="left")
+                  font=self.f_small, foreground="#888", wraplength=230, justify="left").pack(side="left")
 
         # --- 时长 & 热键 & 安全 ---
-        of = ttk.LabelFrame(self.root, text="选项")
+        of = ttk.LabelFrame(self.body, text="选项")
         of.pack(fill="x", **pad)
         r = ttk.Frame(of); r.pack(fill="x", padx=6, pady=2)
-        ttk.Label(r, text="本次时长(分, 0=不限)", font=FONT).pack(side="left")
+        ttk.Label(r, text="本次时长(分, 0=不限)", font=self.f_normal).pack(side="left")
         self.var_dur = tk.StringVar(value=str(self.cfg.get("duration_min", 0)))
         e = ttk.Entry(r, textvariable=self.var_dur, width=6)
         e.pack(side="left", padx=6)
         e.bind("<FocusOut>", lambda ev: self._on_cfg_change())
 
         r2 = ttk.Frame(of); r2.pack(fill="x", padx=6, pady=2)
-        ttk.Label(r2, text="开始/停止", font=FONT).pack(side="left")
+        ttk.Label(r2, text="开始/停止", font=self.f_normal).pack(side="left")
         self.var_toggle = tk.StringVar(value=self.cfg.get("toggle_key", "F6"))
         ttk.Combobox(r2, textvariable=self.var_toggle, values=winio.AVAILABLE_HOTKEYS,
                      width=6, state="readonly").pack(side="left", padx=4)
-        ttk.Label(r2, text="急停", font=FONT).pack(side="left", padx=(8, 0))
+        ttk.Label(r2, text="急停", font=self.f_normal).pack(side="left", padx=(8, 0))
         self.var_stop = tk.StringVar(value=self.cfg.get("stop_key", "F8"))
         ttk.Combobox(r2, textvariable=self.var_stop, values=winio.AVAILABLE_HOTKEYS,
                      width=6, state="readonly").pack(side="left", padx=4)
@@ -227,33 +222,25 @@ class App:
         ew.bind("<FocusOut>", lambda ev: self._on_cfg_change())
 
         r4 = ttk.Frame(of); r4.pack(fill="x", padx=6, pady=2)
-        ttk.Label(r4, text="甩竿按住(ms)", font=FONT).pack(side="left")
+        ttk.Label(r4, text="甩竿按住(ms)", font=self.f_normal).pack(side="left")
         self.var_hold = tk.StringVar(value=str(self.cfg.get("click_hold_ms", 90)))
         eh = ttk.Entry(r4, textvariable=self.var_hold, width=6)
         eh.pack(side="left", padx=6)
         eh.bind("<FocusOut>", lambda ev: self._on_cfg_change())
         ttk.Label(r4, text="太快可能甩不出去；甩不出就调大(建议80–150)",
-                  font=FONT_SMALL, foreground="#888").pack(side="left")
-
-        # --- 开始/停止按钮 ---
-        bf = ttk.Frame(self.root)
-        bf.pack(fill="x", **pad)
-        self.btn_start = ttk.Button(bf, text="▶ 开始", command=self.controller.start)
-        self.btn_start.pack(side="left", fill="x", expand=True, padx=(0, 4))
-        self.btn_stop = ttk.Button(bf, text="■ 停止", command=self.controller.stop)
-        self.btn_stop.pack(side="left", fill="x", expand=True)
+                  font=self.f_small, foreground="#888").pack(side="left")
 
         # --- 数据 ---
-        df = ttk.LabelFrame(self.root, text="数据")
+        df = ttk.LabelFrame(self.body, text="数据")
         df.pack(fill="x", **pad)
         grid = ttk.Frame(df); grid.pack(fill="x", padx=6, pady=4)
-        ttk.Label(grid, text="本次", font=("Microsoft YaHei UI", 9, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(grid, text="生涯", font=("Microsoft YaHei UI", 9, "bold")).grid(row=0, column=1, sticky="w")
+        ttk.Label(grid, text="本次", font=self.f_bold).grid(row=0, column=0, sticky="w")
+        ttk.Label(grid, text="生涯", font=self.f_bold).grid(row=0, column=1, sticky="w")
         self.var_sess = tk.StringVar(value="—")
         self.var_career = tk.StringVar(value="—")
-        ttk.Label(grid, textvariable=self.var_sess, font=FONT, justify="left").grid(
+        ttk.Label(grid, textvariable=self.var_sess, font=self.f_normal, justify="left").grid(
             row=1, column=0, sticky="nw", padx=(0, 12))
-        ttk.Label(grid, textvariable=self.var_career, font=FONT, justify="left").grid(
+        ttk.Label(grid, textvariable=self.var_career, font=self.f_normal, justify="left").grid(
             row=1, column=1, sticky="nw")
         grid.columnconfigure(0, weight=1)
         grid.columnconfigure(1, weight=1)
@@ -262,29 +249,165 @@ class App:
         ttk.Button(hb, text="清空生涯", command=self._reset_career).pack(side="left", padx=6)
 
         # --- 日志 ---
-        lf = ttk.LabelFrame(self.root, text="日志")
+        lf = ttk.LabelFrame(self.body, text="日志")
         lf.pack(fill="both", expand=True, **pad)
-        self.log = tk.Text(lf, height=6, font=FONT_SMALL, state="disabled", wrap="word")
+        self.log = tk.Text(lf, height=6, font=self.f_small, state="disabled", wrap="word")
         self.log.pack(fill="both", expand=True, padx=4, pady=4)
         self.log.tag_config("warn", foreground="#c26a00")
         self.log.tag_config("catch", foreground="#0a7d12")
 
+        self._apply_window_size()
+
+    # ================= 字号/缩放 & 布局骨架 =================
+    def _compute_scale(self) -> float:
+        """界面字号倍率：cfg.ui_scale>0 用手动值；否则按屏幕 DPI 自动(96dpi=1.0)。"""
+        try:
+            manual = float(self.cfg.get("ui_scale", 0) or 0)
+        except (TypeError, ValueError):
+            manual = 0.0
+        if manual > 0:
+            return max(UI_SCALE_MIN, min(UI_SCALE_MAX, round(manual, 2)))
+        try:
+            dpi = float(self.root.winfo_fpixels("1i"))
+        except Exception:
+            dpi = 96.0
+        return max(1.0, min(UI_SCALE_MAX, round(dpi / 96.0, 2)))
+
+    def _init_fonts(self) -> None:
+        """按当前 ui_scale (重)配置命名字体。已存在则原地改 size，让所有引用它的
+        控件与 ttk 样式实时随之变大/变小（A-/A+ 即时生效的关键）。"""
+        s = self.ui_scale
+
+        def px(kind: str) -> int:
+            return -max(9, round(BASE_PX[kind] * s))  # 负数=像素，绕开 tk scaling
+
+        if not hasattr(self, "f_normal"):
+            self.f_small = tkfont.Font(root=self.root, family=FONT_FAMILY)
+            self.f_normal = tkfont.Font(root=self.root, family=FONT_FAMILY)
+            self.f_bold = tkfont.Font(root=self.root, family=FONT_FAMILY, weight="bold")
+            self.f_title = tkfont.Font(root=self.root, family=FONT_FAMILY, weight="bold")
+            self.f_big = tkfont.Font(root=self.root, family=FONT_FAMILY, weight="bold")
+        self.f_small.configure(size=px("small"))
+        self.f_normal.configure(size=px("normal"))
+        self.f_bold.configure(size=px("bold"))
+        self.f_title.configure(size=px("title"))
+        self.f_big.configure(size=px("big"))
+
+    def _apply_style_fonts(self, style: ttk.Style) -> None:
+        """给没有 font= 参数的 ttk 控件(单选/复选/按钮/输入框/下拉)统一套字体与行高。"""
+        style.configure(".", font=self.f_normal)
+        style.configure("TLabelframe.Label", font=self.f_bold)
+        style.configure("Treeview", font=self.f_normal,
+                        rowheight=max(18, round(24 * self.ui_scale)))
+        style.configure("Treeview.Heading", font=self.f_bold)
+
+    def _build_topbar(self, pad: dict) -> None:
+        bar = ttk.Frame(self.root)
+        bar.pack(side="top", fill="x", **pad)
+        row = ttk.Frame(bar); row.pack(fill="x")
+        ttk.Label(row, text="AutoMoyu 摸鱼助手", font=self.f_title).pack(side="left")
+        self.var_top = tk.BooleanVar(value=self.cfg.get("always_on_top", True))
+        ttk.Checkbutton(row, text="📌置顶", variable=self.var_top,
+                        command=self._on_topmost).pack(side="right")
+        sc = ttk.Frame(row); sc.pack(side="right", padx=8)
+        ttk.Label(sc, text="字号", font=self.f_small).pack(side="left", padx=(0, 2))
+        ttk.Button(sc, text="A-", width=3, command=lambda: self._bump_scale(-0.1)).pack(side="left")
+        ttk.Button(sc, text="A+", width=3, command=lambda: self._bump_scale(0.1)).pack(
+            side="left", padx=(2, 0))
+        st = ttk.Frame(bar); st.pack(fill="x", pady=(4, 0))
+        self.dot = tk.Canvas(st, width=14, height=14, highlightthickness=0)
+        self.dot.pack(side="left")
+        self._dot_id = self.dot.create_oval(2, 2, 12, 12, fill="#888", outline="")
+        self.var_status = tk.StringVar(value="待机")
+        ttk.Label(st, textvariable=self.var_status, font=self.f_normal).pack(side="left", padx=6)
+
+    def _build_actionbar(self, pad: dict) -> None:
+        bf = ttk.Frame(self.root)
+        bf.pack(side="bottom", fill="x", **pad)
+        self.btn_start = ttk.Button(bf, text="▶ 开始", command=self.controller.start)
+        self.btn_start.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self.btn_stop = ttk.Button(bf, text="■ 停止", command=self.controller.stop)
+        self.btn_stop.pack(side="left", fill="x", expand=True)
+
+    def _build_scroll_body(self, style: ttk.Style) -> ttk.Frame:
+        """把中间所有设置塞进一个可纵向滚动的画布，界面再长也不会被切掉。"""
+        outer = ttk.Frame(self.root)
+        outer.pack(side="top", fill="both", expand=True)
+        canvas = tk.Canvas(outer, highlightthickness=0, bd=0)
+        try:
+            canvas.configure(bg=style.lookup("TFrame", "background") or "#d9d9d9")
+        except Exception:
+            pass
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        body = ttk.Frame(canvas)
+        win_id = canvas.create_window((0, 0), window=body, anchor="nw")
+        # 内容宽度跟随画布宽度（这样里面 fill="x" 的行才铺满）；高度变化时刷新可滚动范围。
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win_id, width=e.width))
+        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # 指针进入滚动区才接管滚轮，离开就放开，免得抢走历史记录窗口等的滚动。
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", self._on_wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        self._scroll_canvas = canvas
+        return body
+
+    def _on_wheel(self, e) -> None:
+        c = getattr(self, "_scroll_canvas", None)
+        if c is not None:
+            c.yview_scroll(int(-e.delta / 120), "units")
+
+    def _sync_scroll_region(self) -> None:
+        c = getattr(self, "_scroll_canvas", None)
+        if c is not None:
+            c.update_idletasks()
+            c.configure(scrollregion=c.bbox("all"))
+
+    def _bump_scale(self, delta: float) -> None:
+        new = max(UI_SCALE_MIN, min(UI_SCALE_MAX, round(self.ui_scale + delta, 2)))
+        if new == self.ui_scale:
+            return
+        self.ui_scale = new
+        self.cfg["ui_scale"] = new
+        self._save()
+        self._init_fonts()  # 命名字体原地变大/变小 -> 全界面即时刷新
+        try:
+            ttk.Style().configure("Treeview", rowheight=max(18, round(24 * new)))
+        except Exception:
+            pass
+        self._log(f"界面字号：×{new:.1f}", "info")
+        self._sync_scroll_region()
+
+    def _apply_window_size(self) -> None:
+        """按倍率给出初始窗口大小，并夹在屏幕内（超出的部分交给滚动条）。"""
+        s = self.ui_scale
+        try:
+            sw = self.root.winfo_screenwidth()
+            sh = self.root.winfo_screenheight()
+        except Exception:
+            sw, sh = 1920, 1080
+        win_w = min(int(440 * s), max(360, sw - 40))
+        win_h = min(int(940 * s), max(480, sh - 90))
+        self.root.geometry(f"{win_w}x{win_h}")
+        self.root.minsize(min(360, win_w), 480)
+
     def _timing_entry(self, parent, label: str, key: str, hint) -> None:
         row = ttk.Frame(parent); row.pack(fill="x", padx=6, pady=1)
-        ttk.Label(row, text=label, font=FONT_SMALL, width=13, anchor="w").pack(side="left")
+        ttk.Label(row, text=label, font=self.f_small, width=13, anchor="w").pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get(key, cfgmod.DEFAULTS.get(key))))
         e = ttk.Entry(row, textvariable=var, width=7)
         e.pack(side="left", padx=4)
         e.bind("<FocusOut>", lambda ev: self._on_cfg_change())
         e.bind("<Return>", lambda ev: self._on_cfg_change())
         if hint:
-            ttk.Label(row, text=hint, font=FONT_SMALL, foreground="#888").pack(side="left")
+            ttk.Label(row, text=hint, font=self.f_small, foreground="#888").pack(side="left")
         self._timing_vars[key] = var
 
     def _frac_field(self, parent, label: str, key: str, width: int = 5) -> None:
         """紧凑的小数输入(标签+输入框，横排)：用于浮漂中央带边界(0–1)与红顶权重。
         与 _timing_entry 一样把变量登记到 _timing_vars，由 _collect_config 统一读取。"""
-        ttk.Label(parent, text=label, font=FONT_SMALL).pack(side="left", padx=(0, 2))
+        ttk.Label(parent, text=label, font=self.f_small).pack(side="left", padx=(0, 2))
         var = tk.StringVar(value=str(self.cfg.get(key, cfgmod.DEFAULTS.get(key))))
         e = ttk.Entry(parent, textvariable=var, width=width)
         e.pack(side="left", padx=(0, 8))
@@ -686,16 +809,17 @@ class App:
             f"场次：{c['sessions']}（自 {c.get('since', '—')}）")
 
     def _show_history(self) -> None:
+        s = getattr(self, "ui_scale", 1.0)
         win = tk.Toplevel(self.root)
         win.title("历史记录")
-        win.geometry("420x360")
+        win.geometry(f"{int(440 * s)}x{int(380 * s)}")
         win.attributes("-topmost", bool(self.var_top.get()))
         cols = ("start", "dur", "fish", "mode")
         tv = ttk.Treeview(win, columns=cols, show="headings")
         for c, txt, w in (("start", "开始时间", 130), ("dur", "时长", 80),
                           ("fish", "条数", 60), ("mode", "模式", 80)):
             tv.heading(c, text=txt)
-            tv.column(c, width=w, anchor="center")
+            tv.column(c, width=int(w * s), anchor="center")
         tv.pack(fill="both", expand=True, padx=6, pady=6)
         for rec in self.stats.recent_history(200):
             mode = "全自动" if rec.get("mode") == "full" else "半自动"

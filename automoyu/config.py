@@ -26,6 +26,7 @@ DEFAULTS = {
     "toggle_key": "F6",        # 开始/停止
     "stop_key": "F8",          # 紧急停止
     "always_on_top": True,
+    "ui_scale": 0,             # 界面字号缩放：0=按屏幕 DPI 自动；>0 为手动倍率(如 1.3)，界面上 A-/A+ 可调
     "focus_guard": True,       # 只在目标窗口聚焦时点击
     "target_window": "Minecraft",
     # 时序（毫秒）
