@@ -593,7 +593,11 @@ class App:
             self._log(f"截屏失败：{e!r}", "warn")
             return
         self._release_game_cursor()
-        region = det.auto_locate_xp_bar(screen)
+        # 只在 MC 窗口客户区里找，别处的绿色(别的窗口/语法高亮/经验球)才不会把定位吸走。
+        win = winio.find_window_rect(str(self.cfg.get("target_window", "Minecraft")))
+        if win is None:
+            self._log("没找到游戏窗口，改为整屏搜索经验条（可能误命中别处绿色）。", "warn")
+        region = det.auto_locate_xp_bar(screen, window=win)
         if region:
             self._apply_region(region, screen, "已自动定位经验条")
         else:

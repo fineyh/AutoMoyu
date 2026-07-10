@@ -238,15 +238,33 @@ def make_detector(cfg: dict) -> BaseDetector:
     )
 
 
-def auto_locate_xp_bar(screen_bgra: np.ndarray) -> Optional[dict]:
+def auto_locate_xp_bar(
+    screen_bgra: np.ndarray, window: Optional[dict] = None
+) -> Optional[dict]:
     """在整屏下部自动寻找经验条（一条水平的亮绿色线）。
 
+    window: Minecraft 窗口客户区矩形 {left, top, width, height}。给了就只在这个窗口
+    里找——否则整屏别处的绿色（别的窗口、编辑器语法高亮、任务栏、经验球、AutoMoyu
+    自己的绿UI）可能比真经验条更"绿"，把定位吸走，这正是"定位到别的地方"的根因。
+
     需要当前经验条里有一点绿色（非满级 0 经验的空条）。找不到返回 None。
-    返回 {left, top, width, height}（含少量留白）。
+    返回 {left, top, width, height}（屏幕绝对坐标，含少量留白）。
     """
-    H, W = screen_bgra.shape[:2]
-    y0 = int(H * 0.70)  # 只看下部 30%
-    strip = screen_bgra[y0:H]
+    full_h, full_w = screen_bgra.shape[:2]
+    # 把搜索范围限定到 MC 窗口客户区；矩形不合法/太小时退回整屏。
+    ox, oy, ex, ey = 0, 0, full_w, full_h
+    if window:
+        wx = max(0, int(window.get("left", 0)))
+        wy = max(0, int(window.get("top", 0)))
+        wex = min(full_w, wx + int(window.get("width", 0)))
+        wey = min(full_h, wy + int(window.get("height", 0)))
+        if wex - wx >= 20 and wey - wy >= 10:
+            ox, oy, ex, ey = wx, wy, wex, wey
+
+    view = screen_bgra[oy:ey, ox:ex]
+    H, W = view.shape[:2]
+    y0 = int(H * 0.70)  # 只看窗口下部 30%
+    strip = view[y0:H]
     mask = green_mask(strip)
 
     row_counts = mask.sum(axis=1)
@@ -281,7 +299,8 @@ def auto_locate_xp_bar(screen_bgra: np.ndarray) -> Optional[dict]:
     height = abs_bot - abs_top + 1
     if width < 20 or height < 3:
         return None
-    return {"left": left, "top": abs_top, "width": width, "height": height}
+    # left/abs_top 是相对 view 的坐标，加窗口偏移回到屏幕绝对坐标。
+    return {"left": ox + left, "top": oy + abs_top, "width": width, "height": height}
 
 
 def auto_locate_bobber(
