@@ -168,6 +168,7 @@ class App:
         self._timing_entry(tf, "判定预热(ms)", "watch_warmup_ms", "这段时间不判定，调大治『太快』")
         self._timing_entry(tf, "静止阈值", "settle_quiet_mad", "水面老在动就调大")
         self._timing_entry(tf, "钓上后重甩(ms)", "recast_delay_ms", None)
+        self._timing_entry(tf, "多久没上就重甩(秒)", "max_wait_s", "定位到错处/长时间没咬钩时兜底重甩")
         self._timing_entry(tf, "咬钩→收竿(ms)", "bite_reel_delay_ms", "仅全自动")
         self._timing_entry(tf, "收竿后再甩(ms)", "post_reel_delay_ms", "仅全自动")
 
