@@ -37,7 +37,7 @@ export const pauseText: Record<PauseReason, Reason> = {
   },
   rodUnknown: {
     title: "认不出鱼竿",
-    hint: "可能打开了菜单，或鱼竿坏了；画面恢复后自动继续",
+    hint: "可能打开了菜单、换了物品，或校准的位置不对；画面恢复后自动继续，一直这样就重新校准",
     action: { label: "重新校准", kind: "recalibrate" },
   },
   castFailed: {
@@ -70,6 +70,8 @@ export function feedLine(e: EngineEvent): { text: string; sub?: string; tone?: "
       return { text: "钓到 1 条", sub: `上钩用时 ${secs(e.biteWaitMs)}`, tone: "catch" };
     case "empty":
       return { text: "等太久没上钩，收竿重甩", sub: secs(e.waitedMs, 0) };
+    case "bounced":
+      return { text: "刚甩出就被收回，等一下再甩", sub: secs(e.outMs) };
     case "castFailed":
       return { text: "没甩出去，重试", sub: `第 ${e.consecutive} 次`, tone: "warn" };
     case "reel":

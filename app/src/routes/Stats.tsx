@@ -1,9 +1,9 @@
-// 统计：累计、每日条数、上钩用时分布、场次列表；导出 CSV、导入 v0.1 数据。
+// 统计：累计、每日条数、上钩用时分布、场次列表；导出 CSV。
 
 import { useEffect, useState } from "react";
 
 import { BarChart } from "../components/BarChart";
-import { api, openDialog, saveDialog } from "../lib/api";
+import { api, saveDialog } from "../lib/api";
 import { useStore } from "../lib/store";
 import { humanDuration } from "../lib/text";
 import type { StatsView } from "../lib/types";
@@ -37,17 +37,6 @@ export function Stats() {
     void load();
   }, [running]);
 
-  const importLegacy = async () => {
-    const p = await openDialog("v0.1 统计文件 stats.json", ["json"]);
-    if (!p) return;
-    try {
-      const n = await api.importLegacy(p);
-      toast(n > 0 ? `已导入 ${n} 场旧版记录` : "这些记录之前已经导入过了");
-      void load();
-    } catch (e) {
-      toast(`导入失败：${e}`);
-    }
-  };
   const exportCsv = async () => {
     const p = await saveDialog("AutoMoyu-场次.csv", "CSV", ["csv"]);
     if (!p) return;
@@ -154,9 +143,6 @@ export function Stats() {
           })}
         </ul>
       </div>
-      <button className="secondary" onClick={importLegacy}>
-        导入旧版数据（v0.1 的 data/stats.json）
-      </button>
     </>
   );
 }

@@ -613,6 +613,7 @@ impl Svc {
                 record("castFailed", serde_json::json!({ "consecutive": consecutive }), &self.stats)
             }
             Event::Empty { waited_ms } => record("empty", serde_json::json!({ "waitedMs": waited_ms }), &self.stats),
+            Event::Bounced { out_ms } => record("bounced", serde_json::json!({ "outMs": out_ms }), &self.stats),
             Event::Catch { bite_wait_ms, total } => {
                 record("catch", serde_json::json!({ "biteWaitMs": bite_wait_ms }), &self.stats);
                 if let Some(s) = self.session.as_mut() {

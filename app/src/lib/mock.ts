@@ -21,7 +21,7 @@ const settings: Settings = {
 };
 
 const cal = {
-  w: 1920, h: 1080, quality: "excellent" as const, ratio: 12.4, source: "hand" as const,
+  w: 1920, h: 1080, quality: "excellent" as const, ratio: 43.9, source: "hand" as const,
   rel: { x: 0.7375, y: 0.6, w: 0.05, h: 0.089 }, accuracy: 1, createdAt: "2026-09-26T12:00:00+08:00",
 };
 

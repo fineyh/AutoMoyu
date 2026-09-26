@@ -13,7 +13,7 @@ use std::path::Path;
 
 use anyhow::{ensure, Context, Result};
 use moyu_core::bite_audio::{BiteAudioDetector, Sensitivity};
-use moyu_core::calibrate::{search, FRAMES_PER_BATCH};
+use moyu_core::calibrate::{search, Quality, FRAMES_PER_BATCH};
 use moyu_core::{Geometry, Grid, RodState};
 use serde::Serialize;
 
@@ -298,7 +298,7 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
 
     // 钓鱼机模式的"收回"没有可靠逐帧标注，靠数鱼对得上来验证。
     let catches_ok = meta.scenario != Scenario::Machine || catches.abs_diff(expected) <= 1;
-    let verdict_rod = cal.ratio >= 5.0 && accuracy >= 0.98 && catches_ok;
+    let verdict_rod = cal.quality >= Quality::Good && accuracy >= 0.98 && catches_ok;
     let verdict_audio = audio
         .iter()
         .find(|a| a.sensitivity == "Normal")
@@ -306,7 +306,7 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
     println!(
         "结论：竿状态 {}；声音咬钩 {}",
         if verdict_rod {
-            "达标（区分度 ≥5x 且准确率 ≥98%，钓鱼机模式数鱼误差 ≤1）"
+            "达标（校准质量 ≥良 且准确率 ≥98%，钓鱼机模式数鱼误差 ≤1）"
         } else {
             "未达标"
         },

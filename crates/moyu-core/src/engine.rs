@@ -41,6 +41,8 @@ pub struct EngineConfig {
     pub debounce_frames: u32,
     pub min_out_for_catch_ms: u64,
     pub post_catch_delay_ms: u64,
+    /// 甩出去不到 `min_out_for_catch_ms` 就被收回（弹回）后，下一竿多等这么久。
+    pub bounce_backoff_ms: u64,
     pub reel_confirm_ms: u64,
     pub splash_silence_ms: u64,
     pub unknown_pause_ms: u64,
@@ -58,6 +60,7 @@ impl Default for EngineConfig {
             debounce_frames: 3,
             min_out_for_catch_ms: 1_000,
             post_catch_delay_ms: 400,
+            bounce_backoff_ms: 1_500,
             reel_confirm_ms: 2_000,
             splash_silence_ms: 1_200,
             unknown_pause_ms: 10_000,
@@ -149,6 +152,8 @@ pub enum Event {
     Catch { bite_wait_ms: u64, total: u32 },
     /// 甩出超时被收回，没算钓到。
     Empty { waited_ms: u64 },
+    /// 甩出去很快又被收回（多半是钓鱼机还没复位就把新的一竿收了），没算钓到。
+    Bounced { out_ms: u64 },
     Paused { reason: PauseReason },
     Resumed,
     Stopped { reason: StopReason, catches: u32, active_ms: u64 },
@@ -403,20 +408,22 @@ impl Engine {
             }
             RodState::In => {
                 if self.last_known == Some(RodState::Out) {
-                    if let Some(since) = self.out_since {
+                    self.cooldown_until = now + self.cfg.post_catch_delay_ms;
+                    if let Some(since) = self.out_since.filter(|_| self.pause.is_none()) {
                         let waited = now.saturating_sub(since);
-                        if self.pause.is_none() && waited >= self.cfg.min_out_for_catch_ms {
-                            if self.reel_cause == Some(ReelCause::Timeout) {
-                                out.push(Output::Event(Event::Empty { waited_ms: waited }));
-                            } else {
-                                self.catches += 1;
-                                let bite_wait_ms = self.reel_at.map_or(waited, |r| r.saturating_sub(since));
-                                out.push(Output::Event(Event::Catch { bite_wait_ms, total: self.catches }));
-                                self.caught_until = now + 900;
-                            }
+                        if waited < self.cfg.min_out_for_catch_ms {
+                            // 刚甩出就被收回：马上再甩多半还会被收，等钓鱼机复位
+                            out.push(Output::Event(Event::Bounced { out_ms: waited }));
+                            self.cooldown_until = now + self.cfg.bounce_backoff_ms;
+                        } else if self.reel_cause == Some(ReelCause::Timeout) {
+                            out.push(Output::Event(Event::Empty { waited_ms: waited }));
+                        } else {
+                            self.catches += 1;
+                            let bite_wait_ms = self.reel_at.map_or(waited, |r| r.saturating_sub(since));
+                            out.push(Output::Event(Event::Catch { bite_wait_ms, total: self.catches }));
+                            self.caught_until = now + 900;
                         }
                     }
-                    self.cooldown_until = now + self.cfg.post_catch_delay_ms;
                 }
                 self.out_since = None;
                 self.reel_at = None;
@@ -499,6 +506,8 @@ mod tests {
         machine_after: Option<u64>,
         out_at: u64,
         cast_works: bool,
+        /// 接下来这么多竿甩出 300ms 就被钓鱼机收回。
+        bounces: u32,
         window: WindowObs,
         bite_at: Option<u64>,
         events: Vec<Event>,
@@ -514,6 +523,7 @@ mod tests {
                 machine_after: Some(5_000),
                 out_at: 0,
                 cast_works: true,
+                bounces: 0,
                 window: WindowObs::Ok,
                 bite_at: None,
                 events: vec![],
@@ -545,6 +555,10 @@ mod tests {
             let end = self.t + ms;
             while self.t < end {
                 self.t += 66;
+                if self.rod == Out && self.bounces > 0 && self.t - self.out_at >= 300 {
+                    self.rod = In;
+                    self.bounces -= 1;
+                }
                 if self.rod == Out {
                     if let Some(m) = self.machine_after {
                         if self.t - self.out_at >= m {
@@ -574,6 +588,20 @@ mod tests {
         if let Some(Event::Catch { bite_wait_ms, .. }) = s.events.iter().find(|e| matches!(e, Event::Catch { .. })) {
             assert!((4_900..=5_400).contains(bite_wait_ms), "{bite_wait_ms}");
         }
+    }
+
+    #[test]
+    fn bounced_cast_waits_longer_before_recasting() {
+        let mut s = Sim::new(EngineConfig::default());
+        s.bounces = 1;
+        s.run(1_500);
+        assert_eq!(s.count(|e| matches!(e, Event::Bounced { .. })), 1);
+        assert_eq!(s.clicks, 1, "弹回后应先等钓鱼机复位");
+        s.run(1_000);
+        assert_eq!(s.clicks, 2);
+        s.run(6_000);
+        assert_eq!(s.e.catches(), 1);
+        assert_eq!(s.count(|e| matches!(e, Event::CastFailed { .. })), 0);
     }
 
     #[test]

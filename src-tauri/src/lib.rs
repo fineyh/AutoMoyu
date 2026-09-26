@@ -122,7 +122,6 @@ pub fn run() {
             commands::pick_window,
             commands::get_stats,
             commands::export_stats_csv,
-            commands::import_legacy,
             commands::export_diagnostics,
             commands::app_info,
             updater::update_check,

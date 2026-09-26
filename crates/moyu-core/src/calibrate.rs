@@ -65,9 +65,10 @@ pub enum Quality {
 
 impl Quality {
     pub fn from_ratio(r: f32) -> Self {
-        if r >= 8.0 {
+        // 实测：6.4 的框开钓后一直认不出鱼竿；认对手部的框都在 28 以上。
+        if r >= 20.0 {
             Quality::Excellent
-        } else if r >= 4.0 {
+        } else if r >= 12.0 {
             Quality::Good
         } else {
             Quality::Poor
@@ -133,6 +134,10 @@ const AFTER_CAST_MS: u64 = 1300;
 const AFTER_REEL_MS: u64 = 900;
 const MIN_BETWEEN: f32 = 5.0;
 const MIN_RATIO: f32 = 1.5;
+/// 前后两半互相验证至少认对这么多。
+const MIN_CROSS: f32 = 0.9;
+/// 按区分度排前这么多的候选框才做互相验证。
+const MAX_VALIDATE: usize = 400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
@@ -321,6 +326,36 @@ fn eval(si: &[Grid], so: &[Grid], r: CellRect, normalize: bool, s: &mut Scratch)
     (between, between / (j_in + j_out + 0.5))
 }
 
+struct Fitted {
+    model: RodModel,
+    /// 全部样本自测准确率。
+    accuracy: f32,
+    /// 前后两半互相验证的准确率（取较差的那一边）。
+    cross: f32,
+}
+
+fn accuracy_of(model: &RodModel, ci: &[Grid], co: &[Grid]) -> f32 {
+    let correct = ci.iter().filter(|g| model.classify(g).state == RodState::In).count()
+        + co.iter().filter(|g| model.classify(g).state == RodState::Out).count();
+    correct as f32 / (ci.len() + co.len()).max(1) as f32
+}
+
+/// `ci`/`co` 已裁成该框。样本按时间顺序，各自从中间切成前后两半。
+fn fit_and_check(ci: &[Grid], co: &[Grid], normalize: bool) -> Fitted {
+    let model = RodModel::fit(ci, co, normalize);
+    let accuracy = accuracy_of(&model, ci, co);
+    let (ia, ib) = ci.split_at(ci.len() / 2);
+    let (oa, ob) = co.split_at(co.len() / 2);
+    let cross = if ia.is_empty() || oa.is_empty() {
+        accuracy
+    } else {
+        let ab = accuracy_of(&RodModel::fit(ia, oa, normalize), ib, ob);
+        let ba = accuracy_of(&RodModel::fit(ib, ob, normalize), ia, oa);
+        ab.min(ba)
+    };
+    Fitted { model, accuracy, cross }
+}
+
 /// 在所有候选区里滑窗，找区分度最高的小框并建模。
 /// `samples_*` 是 `geom.union` 这块的网格。
 pub fn search(geom: &Geometry, samples_in: &[Grid], samples_out: &[Grid]) -> Result<CalibrationResult, CalError> {
@@ -364,25 +399,33 @@ pub fn search(geom: &Geometry, samples_in: &[Grid], samples_out: &[Grid]) -> Res
     // 区分度差不多（≥90%）时选更大的框：对视角轻微摇晃更稳。
     // 亮度归一化的特征对突然的明暗变化（闪电、火把）更稳，同等条件下优先。
     let eff = |c: &Scored| c.ratio * if c.normalize { 1.0 } else { 0.85 };
-    let best_eff = all.iter().map(eff).fold(0.0f32, f32::max);
-    let pick = *all
-        .iter()
-        .filter(|c| eff(c) >= 0.9 * best_eff)
-        .max_by(|a, b| (a.rect.w * a.rect.h).cmp(&(b.rect.w * b.rect.h)).then(eff(a).total_cmp(&eff(b))))
-        .unwrap();
+    all.sort_by(|a, b| eff(b).total_cmp(&eff(a)));
+    all.truncate(MAX_VALIDATE);
 
-    let local = pick.rect.relative_to(geom.union);
-    let crop = |gs: &[Grid]| gs.iter().map(|g| g.crop(local)).collect::<Vec<_>>();
-    let (ci, co) = (crop(samples_in), crop(samples_out));
-    let model = RodModel::fit(&ci, &co, pick.normalize);
-    let correct = ci.iter().filter(|g| model.classify(g).state == RodState::In).count()
-        + co.iter().filter(|g| model.classify(g).state == RodState::Out).count();
-    let accuracy = correct as f32 / (ci.len() + co.len()) as f32;
-    if accuracy < 0.9 {
+    // 只凭一次采样挑出来的框可能是碰巧（鱼线晃过、水面反光）：
+    // 前后两半样本隔着几秒，用一半建模去认另一半，认得出才算数。
+    let mut passed: Vec<(Scored, Fitted)> = Vec::new();
+    for c in &all {
+        let local = c.rect.relative_to(geom.union);
+        let crop = |gs: &[Grid]| gs.iter().map(|g| g.crop(local)).collect::<Vec<_>>();
+        let f = fit_and_check(&crop(samples_in), &crop(samples_out), c.normalize);
+        if f.accuracy >= 0.9 && f.cross >= MIN_CROSS {
+            passed.push((*c, f));
+        }
+    }
+    if passed.is_empty() {
         return Err(CalError::Inconsistent);
     }
+    let best_eff = passed.iter().map(|(c, _)| eff(c)).fold(0.0f32, f32::max);
+    let (pick, fitted) = passed
+        .into_iter()
+        .filter(|(c, _)| eff(c) >= 0.9 * best_eff)
+        .max_by(|(a, _), (b, _)| (a.rect.w * a.rect.h).cmp(&(b.rect.w * b.rect.h)).then(eff(a).total_cmp(&eff(b))))
+        .unwrap();
+    let Fitted { model, accuracy, cross } = fitted;
+
     let mut quality = Quality::from_ratio(pick.ratio);
-    if accuracy < 1.0 {
+    if accuracy < 1.0 || cross < 1.0 {
         quality = quality.min(Quality::Good);
     }
     let _ = pick.between;
@@ -452,8 +495,35 @@ mod tests {
         // 选中框必须和竿头方块有交集
         let hit = r.roi.x < tip.0 + 8 && tip.0 < r.roi.x + r.roi.w && r.roi.y < tip.1 + 8 && tip.1 < r.roi.y + r.roi.h;
         assert!(hit, "roi {:?}", r.roi);
-        assert!(r.quality >= Quality::Good, "ratio {}", r.ratio);
+        // 合成画面每个像素都加了 ±15 噪声，比真实手部框（28x 以上）难得多，这里只要求明显高于门限
+        assert!(r.ratio > 5.0, "ratio {}", r.ratio);
         assert_eq!(r.accuracy, 1.0);
+    }
+
+    #[test]
+    fn quality_matches_live_results() {
+        assert_eq!(Quality::from_ratio(6.4), Quality::Poor);
+        assert_eq!(Quality::from_ratio(43.9), Quality::Excellent);
+    }
+
+    fn flat(v: f32) -> Grid {
+        let mut g = Grid::new(3, 3);
+        g.px.iter_mut().for_each(|p| *p = [v; 3]);
+        g
+    }
+
+    #[test]
+    fn cross_check_rejects_spot_that_drifts_between_rounds() {
+        // 前一半：收回 100 / 甩出 140；后一半整体亮了 80，前一半建的模板就认不出了
+        let ci = [flat(100.0), flat(100.0), flat(180.0), flat(180.0)];
+        let co = [flat(140.0), flat(140.0), flat(220.0), flat(220.0)];
+        let f = fit_and_check(&ci, &co, false);
+        assert!(f.cross < MIN_CROSS, "cross {}", f.cross);
+        // 两轮一致的框
+        let ci = [flat(100.0), flat(101.0), flat(99.0), flat(100.0)];
+        let co = [flat(140.0), flat(139.0), flat(141.0), flat(140.0)];
+        let f = fit_and_check(&ci, &co, false);
+        assert_eq!((f.accuracy, f.cross), (1.0, 1.0));
     }
 
     #[test]
@@ -486,6 +556,6 @@ mod tests {
         assert!(!out_state, "校准结束时竿应收回");
         assert!(t < 12_000, "校准应在 12 秒内完成，用了 {t}ms");
         let r = c.finish().unwrap();
-        assert!(r.quality >= Quality::Good);
+        assert!(r.ratio > 5.0, "ratio {}", r.ratio);
     }
 }

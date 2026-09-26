@@ -50,7 +50,6 @@ export const api = {
   pickWindow: (pick: WindowMatch | null) => call<Settings>("pick_window", { pick }),
   stats: (days = 7) => call<StatsView>("get_stats", { days }),
   exportCsv: (path: string) => call<number>("export_stats_csv", { path }),
-  importLegacy: (path: string) => call<number>("import_legacy", { path }),
   exportDiagnostics: (path: string) => call<void>("export_diagnostics", { path }),
   appInfo: () => call<AppInfo>("app_info"),
   updateCheck: () => call<UpdateInfo | null>("update_check"),
@@ -70,13 +69,6 @@ export async function saveDialog(defaultPath: string, name: string, ext: string[
   if (!inTauri) return null;
   const { save } = await import("@tauri-apps/plugin-dialog");
   return save({ defaultPath, filters: [{ name, extensions: ext }] });
-}
-
-export async function openDialog(name: string, ext: string[]): Promise<string | null> {
-  if (!inTauri) return null;
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  const r = await open({ multiple: false, directory: false, filters: [{ name, extensions: ext }] });
-  return typeof r === "string" ? r : null;
 }
 
 export async function openUrl(url: string) {

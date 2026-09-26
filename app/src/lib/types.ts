@@ -83,6 +83,7 @@ export type EngineEvent =
   | { kind: "reel"; cause: "bite" | "timeout" }
   | { kind: "catch"; biteWaitMs: number; total: number }
   | { kind: "empty"; waitedMs: number }
+  | { kind: "bounced"; outMs: number }
   | { kind: "paused"; reason: PauseReason }
   | { kind: "resumed" }
   | { kind: "stopped"; reason: StopReason; catches: number; activeMs: number }

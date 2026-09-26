@@ -1,14 +1,14 @@
 //! 统计库：`%APPDATA%\AutoMoyu\stats.db`（SQLite）。
 //!
-//! - sessions：一场一行（开始/结束、模式、条数、有效时长、结束原因、来源 app/legacy）。
-//! - events：cast / catch / empty / castFailed / pause / resume / stop，data 为 JSON。
+//! - sessions：一场一行（开始/结束、模式、条数、有效时长、结束原因、来源 app，或 legacy = 从 v0.1 导入的旧记录）。
+//! - events：cast / catch / empty / bounced / castFailed / pause / resume / stop，data 为 JSON。
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 pub struct Stats {
     db: Connection,
@@ -91,8 +91,6 @@ impl Stats {
                stop_reason TEXT,
                source TEXT NOT NULL DEFAULT 'app'
              );
-             CREATE UNIQUE INDEX IF NOT EXISTS sessions_legacy_uniq
-               ON sessions(started_at, active_ms) WHERE source = 'legacy';
              CREATE TABLE IF NOT EXISTS events (
                id INTEGER PRIMARY KEY,
                session_id INTEGER NOT NULL REFERENCES sessions(id),
@@ -257,37 +255,6 @@ impl Stats {
         std::fs::write(path, s)?;
         Ok(rows.len())
     }
-
-    /// 导入 v0.1 的 `data/stats.json`。重复导入不会重复计数。
-    pub fn import_legacy(&self, path: &Path) -> Result<usize> {
-        #[derive(Deserialize)]
-        struct Legacy {
-            history: Vec<Entry>,
-        }
-        #[derive(Deserialize)]
-        struct Entry {
-            start: String,
-            seconds: f64,
-            fish: i64,
-            mode: Option<String>,
-        }
-        let raw = std::fs::read_to_string(path).with_context(|| format!("读取 {}", path.display()))?;
-        let legacy: Legacy = serde_json::from_str(&raw).context("不是 v0.1 的 stats.json")?;
-        let mut n = 0;
-        for e in legacy.history {
-            let Ok(naive) = NaiveDateTime::parse_from_str(&e.start, "%Y-%m-%d %H:%M") else { continue };
-            let Some(start): Option<DateTime<Local>> = Local.from_local_datetime(&naive).earliest() else { continue };
-            let end = start + chrono::Duration::milliseconds((e.seconds * 1000.0) as i64);
-            let mode = if e.mode.as_deref() == Some("full") { "full" } else { "rodOnly" };
-            let fmt = |d: DateTime<Local>| d.format("%Y-%m-%dT%H:%M:%S%.3f%:z").to_string();
-            n += self.db.execute(
-                "INSERT OR IGNORE INTO sessions(started_at, ended_at, mode, catches, active_ms, stop_reason, source)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'user', 'legacy')",
-                params![fmt(start), fmt(end), mode, e.fish, (e.seconds * 1000.0) as i64],
-            )?;
-        }
-        Ok(n)
-    }
 }
 
 #[cfg(test)]
@@ -308,26 +275,5 @@ mod tests {
         assert_eq!(b[1].count, 1);
         assert_eq!(b[2].count, 1);
         assert_eq!(s.view(7).unwrap().days.len(), 1);
-    }
-
-    #[test]
-    fn legacy_import_is_idempotent() {
-        let dir = std::env::temp_dir().join(format!("moyu-legacy-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let p = dir.join("stats.json");
-        std::fs::write(
-            &p,
-            r#"{"career":{"fish":7},"history":[
-              {"start":"2026-07-08 22:18","seconds":12.0,"fish":0,"mode":"semi","target":"xp"},
-              {"start":"2026-07-08 23:10","seconds":223.1,"fish":7,"mode":"full","target":"hook"}]}"#,
-        )
-        .unwrap();
-        let s = Stats::memory().unwrap();
-        assert_eq!(s.import_legacy(&p).unwrap(), 2);
-        assert_eq!(s.import_legacy(&p).unwrap(), 0);
-        let sum = s.summary().unwrap();
-        assert_eq!((sum.catches, sum.sessions), (7, 2));
-        assert_eq!(sum.since.as_deref(), Some("2026-07-08"));
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

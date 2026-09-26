@@ -131,11 +131,6 @@ pub fn export_stats_csv(state: State<'_, AppState>, path: PathBuf) -> R<usize> {
 }
 
 #[tauri::command]
-pub fn import_legacy(state: State<'_, AppState>, path: PathBuf) -> R<usize> {
-    state.stats.lock().unwrap().import_legacy(&path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub fn export_diagnostics(state: State<'_, AppState>, path: PathBuf) -> R<()> {
     let status = state.service.get().map(|s| s.snapshot());
     let json = serde_json::to_string_pretty(&status).unwrap_or_default();

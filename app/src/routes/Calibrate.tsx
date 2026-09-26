@@ -179,7 +179,7 @@ export function Calibrate() {
           <div className={`qual ${c.result.quality}`}>
             <span>区分度</span>
             <span className="meter">
-              <i style={{ width: `${Math.min(100, (c.result.ratio / 15) * 100)}%` }} />
+              <i style={{ width: `${Math.min(100, (c.result.ratio / 30) * 100)}%` }} />
             </span>
             <b>
               {qualityText[c.result.quality]} · {c.result.ratio.toFixed(1)}×
@@ -187,7 +187,8 @@ export function Calibrate() {
           </div>
           <p className="fine">
             已校准 · {c.result.w}×{c.result.h} · 识别{sourceName[c.result.source]}
-            {c.result.quality === "poor" && "。信号偏弱：关掉「视角摇晃」、别站在会动的方块旁、关掉光影后重试会更稳。"}
+            {c.result.quality === "poor" &&
+              "。信号太弱，开钓后很可能认不出鱼竿：看看上面的框是不是落在手里的鱼竿上；关掉「视角摇晃」、别站在会动的方块旁、别动鼠标，再校准一次。"}
           </p>
           <button
             className="primary"
