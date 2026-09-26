@@ -54,7 +54,7 @@ const status = (): Status => {
     phase,
     pauseReason: scene === "paused" ? "notForeground" : null,
     session: { catches, activeMs: 724_000 + t * 66, outForMs: phase === "waiting" ? (cyc - 6) * 66 : null, avgBiteMs: 8100 },
-    signal: { dIn: 3.1, dOut: 18.4, rod: "out", audioRatio: 1.4, audioThreshold: 7 },
+    signal: { dIn: 3.1, dOut: 18.4, rod: "out", audioDb: -48.2, audioGateDb: -31.5 },
   };
 };
 

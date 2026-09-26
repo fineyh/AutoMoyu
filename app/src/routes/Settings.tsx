@@ -352,7 +352,8 @@ export function Settings() {
                   实时信号
                   <small className="mono">
                     离收回 {status.signal.dIn.toFixed(1)} · 离甩出 {status.signal.dOut.toFixed(1)}
-                    {status.signal.audioRatio != null && ` · 声音 ${status.signal.audioRatio.toFixed(1)}/${status.signal.audioThreshold}`}
+                    {status.signal.audioDb != null &&
+                      ` · 声音 ${status.signal.audioDb.toFixed(0)}/${status.signal.audioGateDb?.toFixed(0) ?? "—"} dB`}
                   </small>
                 </span>
               </div>

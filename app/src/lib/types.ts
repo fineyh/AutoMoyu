@@ -58,8 +58,8 @@ export interface SignalView {
   dIn: number;
   dOut: number;
   rod: RodState | null;
-  audioRatio: number | null;
-  audioThreshold: number | null;
+  audioDb: number | null;
+  audioGateDb: number | null;
 }
 
 export interface Status {

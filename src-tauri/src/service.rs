@@ -122,8 +122,8 @@ pub struct SignalView {
     pub d_in: f32,
     pub d_out: f32,
     pub rod: Option<RodState>,
-    pub audio_ratio: Option<f32>,
-    pub audio_threshold: Option<f32>,
+    pub audio_db: Option<f32>,
+    pub audio_gate_db: Option<f32>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -556,8 +556,8 @@ impl Svc {
                 }
             }
             if let Some(l) = a.level {
-                sig.audio_ratio = Some(l.ratio);
-                sig.audio_threshold = Some(l.threshold);
+                sig.audio_db = Some(l.level_db);
+                sig.audio_gate_db = Some(l.gate_db).filter(|g| g.is_finite());
             }
         }
         self.signal = Some(sig);
@@ -601,7 +601,13 @@ impl Svc {
         };
         match &ev {
             Event::Started | Event::Phase { .. } => {}
-            Event::Cast => record("cast", serde_json::json!({}), &self.stats),
+            Event::Cast => {
+                // 用这次甩竿声的音量给咬钩判定定绝对门槛（跟着游戏音量走）
+                if let Some(a) = self.session.as_mut().and_then(|s| s.audio.as_mut()) {
+                    a.det.note_cast();
+                }
+                record("cast", serde_json::json!({}), &self.stats)
+            }
             Event::Reel { cause } => record("reel", serde_json::json!({ "cause": cause }), &self.stats),
             Event::CastFailed { consecutive } => {
                 record("castFailed", serde_json::json!({ "consecutive": consecutive }), &self.stats)

@@ -1,7 +1,9 @@
 //! 离线评估一段录像。
 //!
 //! 标注来自你自己的右键：
-//! - 有钓鱼机：每次右键都是甩竿 → 右键前 0.1~0.7 秒是"收回"，右键后 1.3~2.3 秒是"甩出"。
+//! - 有钓鱼机：每次右键都是甩竿 → 右键前 0.1~0.7 秒是"收回"（且离上一次右键 ≥0.6 秒），右键后 1.3~2.3 秒是"甩出"。
+//!   但机器收竿不是右键，人又常在机器收竿的瞬间就甩，右键前那段画面里竿可能还在外面。
+//!   所以这类"收回"标注只拿来校准，不计入准确率；"收回"这一侧改由数鱼条数把关。
 //! - 没钓鱼机：右键交替为甩竿/收竿 → 收竿右键前 0.1~0.7 秒也是"甩出"，且咬钩≈收竿右键前一刻。
 //!
 //! 只用**前两轮**的标注样本做校准（和真实校准一样），其余全部用来测，
@@ -36,6 +38,7 @@ struct Report {
     unknown_fraction: f32,
     worst_margin: f32,
     median_margin: f32,
+    uncertain_frames: usize,
     expected_catches: usize,
     counted_catches: usize,
     audio: Vec<AudioReport>,
@@ -57,6 +60,8 @@ struct AudioReport {
 struct Labeled {
     idx: usize,
     state: RodState,
+    /// false = 只用来校准，不计入准确率（钓鱼机模式下甩竿前的"收回"）。
+    certain: bool,
 }
 
 pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
@@ -100,7 +105,10 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
             continue;
         }
         let t = f.t_ms;
-        let st = if casts.iter().any(|&c| in_window(t, -700, -100, c)) {
+        // 游戏画面比输入晚约 250 ms，收竿动画要 ~500 ms 才走完；饵钓 III 下收竿后 1 秒内就会再甩，
+        // 所以"收回"标注还得离上一次右键至少 600 ms。
+        let settled = clicks.iter().rev().find(|&&c| c <= t).is_none_or(|&c| t - c >= 600);
+        let st = if settled && casts.iter().any(|&c| in_window(t, -700, -100, c)) {
             Some(RodState::In)
         } else if casts.iter().any(|&c| {
             in_window(t, 1_300, 2_300, c) && next_click_after(c).is_none_or(|n| n > c + 2_500)
@@ -111,7 +119,8 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
             None
         };
         if let Some(state) = st {
-            labeled.push(Labeled { idx, state });
+            let certain = !(meta.scenario == Scenario::Machine && state == RodState::In);
+            labeled.push(Labeled { idx, state, certain });
         }
     }
     let li: Vec<&Labeled> = labeled.iter().filter(|l| l.state == RodState::In).collect();
@@ -159,8 +168,16 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
         unknown += (c.state == RodState::Unknown) as usize;
         margins.push((idx, c.d_in.min(c.d_out) / c.d_in.max(c.d_out).max(1e-3)));
     }
-    let eval: Vec<&Labeled> = labeled.iter().filter(|l| !cal_set.contains(&l.idx)).collect();
+    let eval: Vec<&Labeled> = labeled.iter().filter(|l| l.certain && !cal_set.contains(&l.idx)).collect();
+    let uncertain = labeled.iter().filter(|l| !l.certain && !cal_set.contains(&l.idx)).count();
     let correct = eval.iter().filter(|l| states[l.idx] == Some(l.state)).count();
+    if std::env::var_os("MOYU_VERBOSE").is_some() {
+        for l in eval.iter().filter(|l| states[l.idx] != Some(l.state)) {
+            let t = frames[l.idx].t_ms;
+            let near = clicks.iter().map(|&c| t as i64 - c as i64).min_by_key(|d| d.abs()).unwrap_or(0);
+            println!("  判错 t={t} 标注 {:?} 算出 {:?}（离最近右键 {near:+} ms）", l.state, states[l.idx]);
+        }
+    }
     let accuracy = if eval.is_empty() { 1.0 } else { correct as f32 / eval.len() as f32 };
     let mut labeled_margins: Vec<f32> = eval
         .iter()
@@ -181,7 +198,6 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
     let mut out_since: Option<u64> = None;
     let mut catches = 0usize;
     let mut reel_times: Vec<u64> = Vec::new();
-    let mut out_ms = 0u64;
     let mut out_periods: Vec<(u64, u64)> = Vec::new();
     for (idx, s) in states.iter().enumerate() {
         let Some(s) = *s else { continue };
@@ -199,7 +215,6 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
                         catches += 1;
                         reel_times.push(t);
                     }
-                    out_ms += t - o;
                     out_periods.push((o, t));
                 }
             }
@@ -222,55 +237,58 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
         moyu_core::rod_state::DECISION_RATIO,
         median
     );
+    if uncertain > 0 {
+        println!("  另有 {uncertain} 帧\"收回\"标注不确定（钓鱼机收竿时刻未知），不计入准确率");
+    }
     println!("数鱼：算法数到 {catches} 条，标注约 {expected} 条");
 
     // ---- 声音 ----
+    // 只有全自动（没钓鱼机）才靠声音收竿，所以只评估手钓录像。
+    // 真值：收竿右键。游戏声音比输入晚约 250 ms，你看到浮漂下沉就点的话，水花会落在右键之后，
+    // 所以命中 = 某段持续声音的**开始时刻**落在 [收竿 −1200, 收竿 +150] ms；
+    // 自己收竿的声音至少在右键后 ~200 ms 才开始，不会被算成命中。
+    // 误报 = 开始时刻落在 [甩竿 +1500, 收竿 −1200] 的触发（引擎在落水静默期内本来就不理会）。
     let mut audio = Vec::new();
     let wav_path = dir.join("audio.wav");
-    if wav_path.exists() {
+    if meta.scenario == Scenario::Machine {
+        println!("声音：钓鱼机模式不用声音判咬钩，跳过。");
+    } else if wav_path.exists() {
         let mut r = hound::WavReader::open(&wav_path)?;
         let sr = r.spec().sample_rate;
-        let samples: Vec<f32> = r.samples::<i16>().map(|s| s.map(|v| v as f32 / i16::MAX as f32)).collect::<Result<_, _>>()?;
-        // 咬钩真值：手动 = 收竿右键；有机器 = 画面里 甩出→收回 的时刻
-        let (bites, lead): (Vec<u64>, u64) = match meta.scenario {
-            Scenario::Manual => (reels.clone(), 1_500),
-            Scenario::Machine => (reel_times.clone(), 1_000),
-        };
-        let out_total_ms: u64 = match meta.scenario {
-            Scenario::Machine => out_ms,
-            Scenario::Manual => casts.iter().zip(&reels).map(|(c, r)| r.saturating_sub(*c)).sum(),
-        };
-        let periods: Vec<(u64, u64)> = match meta.scenario {
-            Scenario::Machine => out_periods.clone(),
-            Scenario::Manual => casts.iter().copied().zip(reels.iter().copied()).collect(),
-        };
+        let samples: Vec<f32> =
+            r.samples::<i16>().map(|s| s.map(|v| v as f32 / i16::MAX as f32)).collect::<Result<_, _>>()?;
+        let pairs: Vec<(u64, u64)> = casts.iter().copied().zip(reels.iter().copied()).collect();
+        let wait_ms: u64 = pairs.iter().map(|&(c, r)| r.saturating_sub(1_200).saturating_sub(c + 1_500)).sum();
         for sens in [Sensitivity::Low, Sensitivity::Normal, Sensitivity::High] {
             let mut d = BiteAudioDetector::new(sr, sens);
-            let onsets: Vec<u64> =
-                samples.chunks(sr as usize / 100).flat_map(|c| d.push(c)).filter(|l| l.onset).map(|l| l.t_ms).collect();
-            let hits = bites.iter().filter(|&&b| onsets.iter().any(|&o| o + lead >= b && o <= b + 200)).count();
-            // 误报：在甩出期间（落水静默期之后）、且不在任何咬钩前窗口里的触发
-            let fa = onsets
-                .iter()
-                .filter(|&&o| periods.iter().any(|&(s, e)| o > s + 1_200 && o < e))
-                .filter(|&&o| !bites.iter().any(|&b| o + lead >= b && o <= b + 200))
-                .count();
+            let mut next_cast = casts.iter().peekable();
+            let mut starts: Vec<u64> = Vec::new();
+            for chunk in samples.chunks(sr as usize / 100) {
+                if next_cast.peek().is_some_and(|&&c| d.now_ms() >= c) {
+                    next_cast.next();
+                    d.note_cast();
+                }
+                starts.extend(d.push(chunk).into_iter().filter_map(|l| l.onset_start_ms));
+            }
+            let hits = reels.iter().filter(|&&b| starts.iter().any(|&o| o + 1_200 >= b && o <= b + 150)).count();
+            let fa = starts.iter().filter(|&&o| pairs.iter().any(|&(c, r)| o >= c + 1_500 && o + 1_200 < r)).count();
             let rep = AudioReport {
                 sensitivity: format!("{sens:?}"),
-                bites: bites.len(),
+                bites: reels.len(),
                 hits,
-                recall: if bites.is_empty() { 0.0 } else { hits as f32 / bites.len() as f32 },
+                recall: if reels.is_empty() { 0.0 } else { hits as f32 / reels.len() as f32 },
                 false_alarms: fa,
-                false_per_10min_out: fa as f32 * 600_000.0 / out_total_ms.max(1) as f32,
+                false_per_10min_out: fa as f32 * 600_000.0 / wait_ms.max(1) as f32,
             };
             println!(
-                "声音（{:>6}）：咬钩 {} 次，命中 {}（召回 {:.0}%），误报 {} 次（每 10 分钟甩出 {:.1} 次）",
+                "声音（{:>6}）：咬钩 {} 次，命中 {}（召回 {:.0}%），误报 {} 次（每 10 分钟等待 {:.1} 次），甩竿声 {:.1} dB",
                 rep.sensitivity,
                 rep.bites,
                 rep.hits,
                 rep.recall * 100.0,
                 rep.false_alarms,
-                rep.false_per_10min_out
+                rep.false_per_10min_out,
+                d.throw_db()
             );
             audio.push(rep);
         }
@@ -278,14 +296,20 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
         println!("没有 audio.wav，跳过声音评估。");
     }
 
-    let verdict_rod = cal.ratio >= 5.0 && accuracy >= 0.98;
+    // 钓鱼机模式的"收回"没有可靠逐帧标注，靠数鱼对得上来验证。
+    let catches_ok = meta.scenario != Scenario::Machine || catches.abs_diff(expected) <= 1;
+    let verdict_rod = cal.ratio >= 5.0 && accuracy >= 0.98 && catches_ok;
     let verdict_audio = audio
         .iter()
         .find(|a| a.sensitivity == "Normal")
         .map(|a| a.recall >= 0.95 && a.false_per_10min_out <= 1.0);
     println!(
         "结论：竿状态 {}；声音咬钩 {}",
-        if verdict_rod { "达标（区分度 ≥5x 且准确率 ≥98%）" } else { "未达标" },
+        if verdict_rod {
+            "达标（区分度 ≥5x 且准确率 ≥98%，钓鱼机模式数鱼误差 ≤1）"
+        } else {
+            "未达标"
+        },
         match verdict_audio {
             Some(true) => "达标（召回 ≥95%，误报 ≤1 次/10 分钟）",
             Some(false) => "未达标",
@@ -302,6 +326,7 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
         calib_quality: format!("{:?}", cal.quality),
         labeled_eval_frames: eval.len(),
         labeled_accuracy: accuracy,
+        uncertain_frames: uncertain,
         unknown_fraction: unknown as f32 / have.max(1) as f32,
         worst_margin: worst,
         median_margin: median,
