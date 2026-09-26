@@ -16,6 +16,9 @@ export function Overlay() {
     text = "校准即将开始";
   } else if (c?.step === "sampling") {
     text = "校准中 · 别动鼠标";
+  } else if (st.pauseReason === "userActive") {
+    text = "你在操作";
+    if (st.session?.resumeInMs != null) extra = `${Math.ceil(st.session.resumeInMs / 1000)}s 后继续`;
   } else if (st.phase === "waiting" && st.session?.outForMs != null) {
     extra = secs(st.session.outForMs).replace(" 秒", "s");
   }

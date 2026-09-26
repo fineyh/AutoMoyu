@@ -1,5 +1,6 @@
 //! AutoMoyu 的 Windows 平台层。只做 IO，不含判断逻辑（逻辑都在 moyu-core）。
 
+pub mod activity;
 pub mod audio;
 pub mod capture;
 pub mod dpi;

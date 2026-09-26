@@ -1,4 +1,4 @@
-// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|calib|done|nowin 切换场景。
+// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|takeover|calib|done|nowin 切换场景。
 // 只用于看界面，打包进 Tauri 后不会走到这里。
 
 import type { FeedItem, Settings, StatsView, Status } from "./types";
@@ -16,7 +16,7 @@ const settings: Settings = {
   ui: { theme: "system", alwaysOnTop: false, closeToTray: true, overlay: true, catchSound: false },
   notify: { onStop: true, onError: true },
   update: { auto: true, channel: "beta", skipVersion: null },
-  advanced: { clickHoldMs: 90, maxWaitS: 60, focusGuard: true, window: null, biteSensitivity: "normal", debugOverlay: false },
+  advanced: { clickHoldMs: 90, maxWaitS: 60, focusGuard: true, takeover: true, takeoverIdleS: 5, window: null, biteSensitivity: "normal", debugOverlay: false },
   onboarded: true,
 };
 
@@ -48,12 +48,16 @@ const status = (): Status => {
     };
   }
   const cyc = t % 120; // 8 秒一条
-  const phase = scene === "paused" ? "paused" : cyc < 6 ? "casting" : cyc < 100 ? "waiting" : cyc < 106 ? "reeling" : "caught";
+  const pausedBy = scene === "paused" ? "notForeground" : scene === "takeover" ? "userActive" : null;
+  const phase = pausedBy ? "paused" : cyc < 6 ? "casting" : cyc < 100 ? "waiting" : cyc < 106 ? "reeling" : "caught";
   return {
     ...base,
     phase,
-    pauseReason: scene === "paused" ? "notForeground" : null,
-    session: { catches, activeMs: 724_000 + t * 66, outForMs: phase === "waiting" ? (cyc - 6) * 66 : null, avgBiteMs: 8100 },
+    pauseReason: pausedBy,
+    session: {
+      catches, activeMs: 724_000 + t * 66, outForMs: phase === "waiting" ? (cyc - 6) * 66 : null, avgBiteMs: 8100,
+      resumeInMs: pausedBy === "userActive" ? 5000 - ((t * 66) % 5000) : null,
+    },
     signal: { dIn: 3.1, dOut: 18.4, rod: "out", audioDb: -48.2, audioGateDb: -31.5 },
   };
 };

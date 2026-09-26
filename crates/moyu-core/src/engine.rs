@@ -4,6 +4,7 @@
 //! - 收回 → 甩竿；2 秒内没变"甩出"算一次失败，连续 3 次暂停。
 //! - 甩出 → （全自动）听到咬钩就收竿；超过最长等待也收竿（保险）。
 //! - 甩出 → 收回（且甩出 ≥1 秒）= 钓到一条。
+//! - 玩家在操作（接管）→ 让出控制；停手后竿状态从头认，接管期间的变化不算。
 //!
 //! sans-IO：调用方喂 `Observation`，按返回的 `Output::Click` 去点，把 `Output::Event` 转给界面/统计。
 
@@ -89,6 +90,8 @@ pub struct Observation {
     pub rod: Option<RodState>,
     /// 本帧是否检测到咬钩（仅全自动有意义）。
     pub bite: bool,
+    /// 玩家最近在操作游戏（接管检测）；为真时让出控制，停手后自动继续。
+    pub user_active: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +115,8 @@ pub enum PauseReason {
     SizeChanged,
     RodUnknown,
     CastFailed,
+    /// 玩家在自己操作游戏。
+    UserActive,
 }
 
 impl PauseReason {
@@ -309,6 +314,18 @@ impl Engine {
         }
     }
 
+    fn forget_rod(&mut self, now: u64) {
+        self.stable = None;
+        self.last_known = None;
+        self.unknown_since = Some(now);
+        self.out_since = None;
+        self.reel_at = None;
+        self.reel_cause = None;
+        self.cast_at = None;
+        self.caught_until = 0;
+        self.cooldown_until = 0;
+    }
+
     fn emit_phase(&mut self, out: &mut Vec<Output>) {
         let cur = (self.phase, if self.phase == Phase::Paused { self.pause } else { None });
         if cur != self.emitted {
@@ -333,10 +350,16 @@ impl Engine {
             WindowObs::NotForeground if self.cfg.focus_guard => Some(PauseReason::NotForeground),
             _ => None,
         };
+        let blocking = blocking.or(obs.user_active.then_some(PauseReason::UserActive));
         match (blocking, self.pause) {
             (Some(r), None) => self.set_pause(r, &mut out),
             (Some(r), Some(p)) if p.auto_resumes() => self.set_pause(r, &mut out),
             (None, Some(p)) if p.from_window() => self.resume(&mut out),
+            (None, Some(PauseReason::UserActive)) => {
+                // 玩家可能自己甩过/收过竿：竿状态从头认，这期间的变化不算钓到
+                self.forget_rod(now);
+                self.resume(&mut out);
+            }
             _ => {}
         }
         if blocking.is_some() {
@@ -509,6 +532,7 @@ mod tests {
         /// 接下来这么多竿甩出 300ms 就被钓鱼机收回。
         bounces: u32,
         window: WindowObs,
+        user_active: bool,
         bite_at: Option<u64>,
         events: Vec<Event>,
         clicks: u32,
@@ -525,6 +549,7 @@ mod tests {
                 cast_works: true,
                 bounces: 0,
                 window: WindowObs::Ok,
+                user_active: false,
                 bite_at: None,
                 events: vec![],
                 clicks: 0,
@@ -567,7 +592,13 @@ mod tests {
                     }
                 }
                 let bite = self.bite_at.is_some_and(|b| self.rod == Out && self.t - self.out_at >= b);
-                let o = self.e.tick(Observation { now_ms: self.t, window: self.window, rod: Some(self.rod), bite });
+                let o = self.e.tick(Observation {
+                    now_ms: self.t,
+                    window: self.window,
+                    rod: Some(self.rod),
+                    bite,
+                    user_active: self.user_active,
+                });
                 self.absorb(o);
             }
         }
@@ -648,6 +679,42 @@ mod tests {
         s.run(500);
         assert_eq!(s.e.pause_reason(), None);
         assert!(s.count(|e| matches!(e, Event::Resumed)) >= 1);
+    }
+
+    #[test]
+    fn user_takeover_yields_and_does_not_count_manual_catch() {
+        let mut s = Sim::new(EngineConfig::default());
+        s.machine_after = None;
+        s.run(1_000); // 已甩出
+        s.user_active = true;
+        s.run(300);
+        assert_eq!(s.e.pause_reason(), Some(PauseReason::UserActive));
+        let clicks = s.clicks;
+        // 玩家自己收竿，停手
+        s.rod = In;
+        s.run(2_000);
+        assert_eq!(s.clicks, clicks, "接管期间不能点击");
+        s.user_active = false;
+        s.machine_after = Some(5_000);
+        s.run(1_000);
+        assert_eq!(s.e.pause_reason(), None);
+        assert_eq!(s.e.catches(), 0, "玩家手动收竿不算钓到");
+        assert_eq!(s.clicks, clicks + 1, "停手后接着甩竿");
+        s.run(6_000);
+        assert_eq!(s.e.catches(), 1);
+    }
+
+    #[test]
+    fn user_pause_is_not_lifted_by_idle() {
+        let mut s = Sim::new(EngineConfig::default());
+        s.run(1_000);
+        let o = s.e.toggle_pause(s.t);
+        s.absorb(o);
+        s.user_active = true;
+        s.run(500);
+        s.user_active = false;
+        s.run(500);
+        assert_eq!(s.e.pause_reason(), Some(PauseReason::User));
     }
 
     #[test]
@@ -742,7 +809,7 @@ mod tests {
         // 两帧误判为收回，不应触发甩竿
         for _ in 0..2 {
             s.t += 66;
-            let o = s.e.tick(Observation { now_ms: s.t, window: WindowObs::Ok, rod: Some(In), bite: false });
+            let o = s.e.tick(Observation { now_ms: s.t, window: WindowObs::Ok, rod: Some(In), bite: false, user_active: false });
             s.absorb(o);
         }
         s.run(500);

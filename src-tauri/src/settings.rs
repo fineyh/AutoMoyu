@@ -137,6 +137,10 @@ pub struct Advanced {
     pub click_hold_ms: u64,
     pub max_wait_s: u64,
     pub focus_guard: bool,
+    /// 玩家自己操作游戏时让出控制。
+    pub takeover: bool,
+    /// 停手这么久后自动继续。
+    pub takeover_idle_s: u64,
     pub window: Option<WindowMatch>,
     pub bite_sensitivity: Sensitivity,
     pub debug_overlay: bool,
@@ -148,6 +152,8 @@ impl Default for Advanced {
             click_hold_ms: 90,
             max_wait_s: 60,
             focus_guard: true,
+            takeover: true,
+            takeover_idle_s: 5,
             window: None,
             bite_sensitivity: Sensitivity::Normal,
             debug_overlay: false,
@@ -220,6 +226,7 @@ impl Settings {
         self.version = 1;
         self.advanced.click_hold_ms = self.advanced.click_hold_ms.clamp(30, 500);
         self.advanced.max_wait_s = self.advanced.max_wait_s.clamp(10, 600);
+        self.advanced.takeover_idle_s = self.advanced.takeover_idle_s.clamp(1, 60);
         if self.auto_stop.kind == AutoStopKind::At {
             self.auto_stop.value = self.auto_stop.value.min(24 * 60 - 1);
         }

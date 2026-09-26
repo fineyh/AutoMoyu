@@ -31,7 +31,10 @@ export function Home() {
   const setMode = (mode: Mode) => patch({ mode });
   const win = status?.window;
   const cal = status?.calibration;
-  const reason = paused && status?.pauseReason ? pauseText[status.pauseReason] : null;
+  let reason = paused && status?.pauseReason ? pauseText[status.pauseReason] : null;
+  if (reason && status?.pauseReason === "userActive" && session?.resumeInMs != null) {
+    reason = { ...reason, hint: `停手 ${Math.ceil(session.resumeInMs / 1000)} 秒后自动继续` };
+  }
 
   const act = (kind: "focus" | "recalibrate" | "pickWindow") => {
     if (kind === "focus") void api.focusGame();

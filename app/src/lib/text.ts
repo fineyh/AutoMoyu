@@ -45,6 +45,7 @@ export const pauseText: Record<PauseReason, Reason> = {
     hint: "手上可能不是鱼竿，或面前没有水",
     action: { label: "重新校准", kind: "recalibrate" },
   },
+  userActive: { title: "你在操作游戏，已让出控制", hint: "停手几秒后自动继续" },
 };
 
 export const stopText: Record<StopReason, string> = {

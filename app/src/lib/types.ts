@@ -2,7 +2,7 @@
 
 export type Mode = "rodOnly" | "full";
 export type Phase = "idle" | "starting" | "casting" | "waiting" | "reeling" | "caught" | "paused";
-export type PauseReason = "user" | "notForeground" | "windowMissing" | "sizeChanged" | "rodUnknown" | "castFailed";
+export type PauseReason = "user" | "notForeground" | "windowMissing" | "sizeChanged" | "rodUnknown" | "castFailed" | "userActive";
 export type StopReason = "user" | "gameClosed" | "duration" | "catches" | "deadline";
 export type RodState = "in" | "out" | "unknown";
 export type Quality = "poor" | "good" | "excellent";
@@ -52,6 +52,7 @@ export interface SessionView {
   activeMs: number;
   outForMs: number | null;
   avgBiteMs: number | null;
+  resumeInMs: number | null;
 }
 
 export interface SignalView {
@@ -110,6 +111,8 @@ export interface Settings {
     clickHoldMs: number;
     maxWaitS: number;
     focusGuard: boolean;
+    takeover: boolean;
+    takeoverIdleS: number;
     window: WindowMatch | null;
     biteSensitivity: Sensitivity;
     debugOverlay: boolean;

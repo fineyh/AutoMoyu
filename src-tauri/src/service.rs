@@ -11,6 +11,7 @@ use moyu_core::bite_audio::{AudioLevel, BiteAudioDetector};
 use moyu_core::calibrate::{CalOutput, Calibrator, Geometry, Quality, Source};
 use moyu_core::engine::{Engine, Event, Mode, Observation, Output, PauseReason, Phase, StopReason, WindowObs};
 use moyu_core::{Grid, RelRect, RodModel, RodState};
+use moyu_win::activity::{self, ActivityMonitor};
 use moyu_win::audio::{AudioCapture, AudioSource};
 use moyu_win::power::KeepAwake;
 use moyu_win::{window, GameWindow, ScreenCapture};
@@ -114,6 +115,8 @@ pub struct SessionView {
     /// 这一竿已经甩出多久。
     pub out_for_ms: Option<u64>,
     pub avg_bite_ms: Option<u64>,
+    /// 因玩家操作让出控制时，再停手多久自动继续。
+    pub resume_in_ms: Option<u64>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -219,6 +222,9 @@ struct Session {
     cal: Stored,
     bite_waits: Vec<u64>,
     last_save: Instant,
+    activity: Option<ActivityMonitor>,
+    /// 最近一次真人输入距今（毫秒），仅游戏在前台时的输入。
+    idle_ms: Option<u64>,
 }
 
 enum CalStep {
@@ -407,7 +413,15 @@ impl Svc {
             Cmd::ToggleOverlay => self.overlay_on = !self.overlay_on,
             Cmd::Settings(s) => {
                 let mode_changed = s.mode != self.settings.mode;
+                let takeover_changed =
+                    s.advanced.takeover != self.settings.advanced.takeover || s.hotkeys != self.settings.hotkeys;
                 self.settings = *s;
+                if takeover_changed {
+                    if let Some(sess) = self.session.as_mut() {
+                        sess.activity = None; // 先卸旧钩子（静态状态只能有一份）
+                        sess.activity = install_activity(&self.settings);
+                    }
+                }
                 if mode_changed && self.engine.is_running() {
                     let out = self.engine.stop(now, StopReason::User);
                     self.handle(out);
@@ -466,6 +480,8 @@ impl Svc {
             cal,
             bite_waits: Vec::new(),
             last_save: Instant::now(),
+            activity: install_activity(&self.settings),
+            idle_ms: None,
         });
         self.engine = Engine::new(self.settings.engine_config(now));
         self.status.lock().unwrap().last_stop = None;
@@ -561,7 +577,8 @@ impl Svc {
             }
         }
         self.signal = Some(sig);
-        let out = self.engine.tick(Observation { now_ms: now, window: obs_window, rod, bite });
+        let user_active = self.poll_takeover();
+        let out = self.engine.tick(Observation { now_ms: now, window: obs_window, rod, bite, user_active });
         self.handle(out);
         if let Some(s) = self.session.as_mut() {
             if s.last_save.elapsed() > Duration::from_secs(10) {
@@ -569,6 +586,26 @@ impl Svc {
                 let _ = self.stats.lock().unwrap().progress(s.id, self.engine.catches(), self.engine.active_ms());
             }
         }
+    }
+
+    /// 玩家最近是否在操作游戏。
+    fn poll_takeover(&mut self) -> bool {
+        let idle_limit = self.settings.advanced.takeover_idle_s * 1000;
+        let target = self.tracker.win.as_ref().map(|w| w.hwnd);
+        let Some(s) = self.session.as_mut() else { return false };
+        let Some(mon) = &s.activity else {
+            s.idle_ms = None;
+            return false;
+        };
+        mon.set_target(target);
+        let last = mon.last_input();
+        let was = s.idle_ms.is_some_and(|ms| ms < idle_limit);
+        s.idle_ms = last.map(|(ago, _)| ago.as_millis() as u64);
+        let active = s.idle_ms.is_some_and(|ms| ms < idle_limit);
+        if active && !was {
+            tracing::info!("检测到玩家操作（{}），让出控制", last.map_or("?", |(_, k)| k.label()));
+        }
+        active
     }
 
     fn click(&self) {
@@ -841,6 +878,8 @@ impl Svc {
             active_ms: self.engine.active_ms(),
             out_for_ms: self.engine.out_since().map(|t| now.saturating_sub(t)),
             avg_bite_ms: avg(&s.bite_waits),
+            resume_in_ms: (self.engine.pause_reason() == Some(PauseReason::UserActive))
+                .then(|| (self.settings.advanced.takeover_idle_s * 1000).saturating_sub(s.idle_ms.unwrap_or(0))),
         });
         let last_stop = self.status.lock().unwrap().last_stop;
         Status {
@@ -909,6 +948,21 @@ fn cmd_name(c: &Cmd) -> &'static str {
         Cmd::PickWindow(_) => "pickWindow",
         Cmd::FocusGame => "focusGame",
         Cmd::Quit(_) => "quit",
+    }
+}
+
+fn install_activity(s: &Settings) -> Option<ActivityMonitor> {
+    if !s.advanced.takeover {
+        return None;
+    }
+    let mut ignore = activity::hotkey_vks(&s.hotkeys.toggle);
+    ignore.extend(activity::hotkey_vks(&s.hotkeys.overlay));
+    match ActivityMonitor::install(&ignore) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            tracing::warn!("接管检测不可用：{e}");
+            None
+        }
     }
 }
 

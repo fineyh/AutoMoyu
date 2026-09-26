@@ -334,6 +334,20 @@ export function Settings() {
               </span>
               <Switch label="仅游戏在前台时点击" checked={s.advanced.focusGuard} onChange={(v) => p({ advanced: { focusGuard: v } })} />
             </div>
+            <div className="row">
+              <span className="lbl">
+                你操作时让出控制<small>在游戏里动鼠标、按键就先暂停，停手后自动继续</small>
+              </span>
+              <Switch label="你操作时让出控制" checked={s.advanced.takeover} onChange={(v) => p({ advanced: { takeover: v } })} />
+            </div>
+            {s.advanced.takeover && (
+              <div className="row">
+                <span className="lbl">
+                  停手多久后继续
+                </span>
+                <NumberField value={s.advanced.takeoverIdleS} min={1} max={60} suffix="秒" onCommit={(v) => p({ advanced: { takeoverIdleS: v } })} />
+              </div>
+            )}
             <button className="row clickable" onClick={() => setPicker(true)}>
               <span className="lbl">
                 游戏窗口<small>{s.advanced.window ? `${s.advanced.window.title} · ${s.advanced.window.process}` : "自动识别"}</small>

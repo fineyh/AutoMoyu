@@ -1,5 +1,5 @@
 //! 低级鼠标钩子：记录右键按下/松开，并区分是人点的还是程序注入的。
-//! 用于 Phase 0 录制（把玩家自己的右键当作甩竿/收竿标注）和以后的"用户接管"检测。
+//! 用于 Phase 0 录制（把玩家自己的右键当作甩竿/收竿标注）。运行时的接管检测在 `activity`。
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;

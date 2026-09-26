@@ -33,3 +33,23 @@ fn system_loopback_starts() {
         assert_eq!(a.source, moyu_win::audio::AudioSource::System);
     }
 }
+
+#[test]
+fn activity_monitor_ignores_injected_input() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_F24,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    let mon = moyu_win::activity::ActivityMonitor::install(&[]).expect("hook");
+    mon.set_target(Some(unsafe { GetForegroundWindow().0 as isize }));
+    let key = |flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VK_F24, dwFlags: flags, ..Default::default() } },
+    };
+    unsafe { SendInput(&[key(Default::default()), key(KEYEVENTF_KEYUP)], std::mem::size_of::<INPUT>() as i32) };
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // 注入的按键不算；测试期间真人碰了鼠标可能记成 Move，那不影响本断言
+    assert_ne!(mon.last_input().map(|(_, k)| k), Some(moyu_win::activity::InputKind::Key));
+    drop(mon);
+}
