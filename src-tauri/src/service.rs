@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use moyu_core::bite_audio::{AudioLevel, BiteAudioDetector};
-use moyu_core::calibrate::{CalOutput, Calibrator, Geometry, Quality, Source};
+use moyu_core::calibrate::{CalError, CalOutput, Calibrator, Geometry, Quality, Source};
 use moyu_core::engine::{Engine, Event, Mode, Observation, Output, PauseReason, Phase, StopReason, WindowObs};
 use moyu_core::{Grid, RelRect, RodModel, RodState};
 use moyu_win::activity::{self, ActivityMonitor};
@@ -19,6 +19,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::calib_store::{self, Stored};
+use crate::i18n::t;
 use crate::settings::{BiteSource, Settings, WindowMatch};
 use crate::stats::Stats;
 use crate::{notify, overlay, tray};
@@ -143,6 +144,7 @@ pub struct Status {
     pub audio: Option<AudioSource>,
     pub signal: Option<SignalView>,
     pub overlay_on: bool,
+    pub lang: crate::i18n::Lang,
 }
 
 impl Status {
@@ -159,6 +161,7 @@ impl Status {
             audio: None,
             signal: None,
             overlay_on: true,
+            lang: crate::i18n::current(),
         }
     }
 }
@@ -360,7 +363,7 @@ impl Svc {
         match cmd {
             Cmd::Hotkey => match self.cal.as_ref().map(|c| &c.step) {
                 Some(CalStep::Prepare | CalStep::Failed(_)) => self.cal_countdown(now),
-                Some(CalStep::Countdown { .. } | CalStep::Sampling(_)) => self.cal_cancel("已取消校准"),
+                Some(CalStep::Countdown { .. } | CalStep::Sampling(_)) => self.cal_cancel(t("已取消校准", "Calibration cancelled")),
                 Some(CalStep::Done(_)) => {
                     self.cal = None;
                     if !self.engine.is_running() {
@@ -445,7 +448,7 @@ impl Svc {
 
     fn start(&mut self, now: u64) {
         let Some(w) = self.tracker.win.clone() else {
-            let _ = self.app.emit("toast", "找不到 Minecraft：请先打开游戏（窗口化或无边框）");
+            let _ = self.app.emit("toast", t("找不到 Minecraft：请先打开游戏（窗口化或无边框）", "Minecraft not found: open the game first (windowed or borderless)"));
             return;
         };
         let Some(cal) = self.calibration.clone().filter(|c| c.result.client_w == w.w && c.result.client_h == w.h)
@@ -464,7 +467,7 @@ impl Svc {
                 }
                 Err(e) => {
                     tracing::warn!("声音采集失败：{e}");
-                    let _ = self.app.emit("toast", "录不到游戏声音：本次只靠最长等待收竿");
+                    let _ = self.app.emit("toast", t("录不到游戏声音：本次只靠最长等待收竿", "Can't capture game audio: this session will only reel in after the max wait"));
                     None
                 }
             }
@@ -754,18 +757,18 @@ impl Svc {
                             tracing::info!("开始校准：{w}x{h}");
                             CalStep::Sampling(Box::new(Calibrator::new(w, h)))
                         }
-                        (_, None) => CalStep::Failed("找不到 Minecraft".into()),
+                        (_, None) => CalStep::Failed(t("找不到 Minecraft", "Minecraft not found").into()),
                         (false, _) => {
                             tracing::info!("倒计时结束时游戏不在前台，校准取消");
-                            CalStep::Failed("请先切回游戏，再按 F6".into())
+                            CalStep::Failed(t("请先切回游戏，再按 F6", "Switch back to the game first, then press F6").into())
                         }
-                        _ => CalStep::Failed("请先切回游戏，再按 F6".into()),
+                        _ => CalStep::Failed(t("请先切回游戏，再按 F6", "Switch back to the game first, then press F6").into()),
                     };
                 }
             }
             CalStep::Sampling(c) => {
                 if !fg || size != Some((c.geom.client_w, c.geom.client_h)) {
-                    run.step = CalStep::Failed("校准时切出了游戏或改了窗口大小，已中止".into());
+                    run.step = CalStep::Failed(t("校准时切出了游戏或改了窗口大小，已中止", "Calibration stopped: the game lost focus or the window was resized").into());
                 } else {
                     let geom = c.geom.clone();
                     let frame = self.union_grid(&geom);
@@ -816,11 +819,11 @@ impl Svc {
                         }
                         CalStep::Done(view)
                     }
-                    Err(e) => CalStep::Failed(format!("保存校准失败：{e}")),
+                    Err(e) => CalStep::Failed(format!("{}{e}", t("保存校准失败：", "Couldn't save calibration: "))),
                 },
                 Err(e) => {
                     tracing::info!("校准失败：{e:?}");
-                    CalStep::Failed(e.to_string())
+                    CalStep::Failed(cal_error_text(&e).into())
                 }
             };
         }
@@ -907,6 +910,7 @@ impl Svc {
             audio: self.session.as_ref().and_then(|s| s.audio.as_ref().map(|a| a._cap.source)),
             signal: self.signal.clone(),
             overlay_on: self.overlay_on,
+            lang: crate::i18n::current(),
         }
     }
 
@@ -980,5 +984,19 @@ pub fn mode_str(m: Mode) -> &'static str {
     match m {
         Mode::RodOnly => "rodOnly",
         Mode::Full => "full",
+    }
+}
+
+fn cal_error_text(e: &CalError) -> &'static str {
+    match e {
+        CalError::NotEnoughSamples => t("没采到足够的画面：请保持游戏在前台", "Not enough frames captured: keep the game in the foreground"),
+        CalError::NoSignal => t(
+            "甩竿前后画面几乎没变化：手上可能不是鱼竿，或面前没有水",
+            "Casting barely changed the picture: you may not be holding a fishing rod, or there's no water in front of you",
+        ),
+        CalError::Inconsistent => t(
+            "两轮试甩结果不一致：请别动鼠标，站在原地重试",
+            "The two test casts didn't match: keep the mouse still, stay in place and try again",
+        ),
     }
 }

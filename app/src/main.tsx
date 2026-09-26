@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
+import { getLang, setLang } from "./lib/i18n";
 import { useStore, wireBackend } from "./lib/store";
 import { startUpdateLoop } from "./lib/updater";
 import { Overlay } from "./overlay/Overlay";
@@ -27,7 +28,18 @@ window.addEventListener("keydown", (e) => {
   if ((e.ctrlKey && (e.key === "r" || e.key === "p")) || e.key === "F5") e.preventDefault();
 });
 
+setLang(getLang());
 void wireBackend();
 if (!isOverlay) startUpdateLoop();
 
-createRoot(document.getElementById("root")!).render(<StrictMode>{isOverlay ? <Overlay /> : <App />}</StrictMode>);
+/** 换语言时整棵树重建：文案都是渲染时 t() 取的。 */
+function Root() {
+  const lang = useStore((s) => s.lang);
+  return isOverlay ? <Overlay key={lang} /> : <App key={lang} />;
+}
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <Root />
+  </StrictMode>,
+);

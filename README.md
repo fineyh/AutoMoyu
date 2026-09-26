@@ -1,5 +1,7 @@
 # AutoMoyu 🎣 — Minecraft 基岩版自动钓鱼
 
+**中文** | [English](README.en.md)
+
 **一次选择，一次校准，然后去摸鱼。**
 
 你只回答一个问题——有没有钓鱼机；程序自己甩两次竿、挑出最好认的画面、定好阈值，然后按 F6 就能挂机。
@@ -26,6 +28,8 @@
 
 窗口尺寸变了会提示重新校准（每个尺寸只需校准一次）。
 
+界面语言跟随 Windows 显示语言（中文/英文），可在 设置 → 常规 → 语言 里切换。
+
 **小建议**：关掉游戏里的"视角摇晃"、别开光影，信号会更稳；全自动模式下"音效"音量别调到 0（音乐可以关）。
 
 ## 常见问题
@@ -41,6 +45,10 @@
 > 本项目与 Mojang、Microsoft 无关，不是 Minecraft 官方产品。
 
 ---
+
+## 许可证
+
+[MIT](LICENSE)
 
 ## 开发
 
@@ -59,7 +67,7 @@ legacy/python/     v0.1 原型（tag v0.1.0），功能对齐后删除
 ```bash
 pnpm install
 pnpm dev                 # 启动应用（热重载）
-pnpm web                 # 只看界面：浏览器打开 http://localhost:1420/?mock=running|paused|idle|calib|done|nowin
+pnpm web                 # 只看界面：浏览器打开 http://localhost:1420/?mock=running|paused|idle|calib|done|nowin（&lang=en 看英文）
 cargo test --workspace   # 算法、平台冒烟、应用单测
 ```
 

@@ -2,6 +2,7 @@
 // 钓鱼进行中不打扰——横幅只在没在钓鱼时出现（见 UpdateBanner）。
 
 import { api, inTauri, on } from "./api";
+import { t } from "./i18n";
 import { useStore } from "./store";
 
 const FIRST_CHECK_MS = 10_000;
@@ -19,7 +20,7 @@ export async function checkForUpdate(manual = false) {
     setUpdate({ state: "available", info });
     if (settings?.update.auto) void download();
   } catch (e) {
-    // 检查失败静默（国内网络常见），手动检查时才提示
+    // 检查失败静默（访问 GitHub 不稳定时常见），手动检查时才提示
     if (manual) setUpdate({ state: "error", message: String(e) });
   }
   return useStore.getState().update;
@@ -35,7 +36,7 @@ export async function download() {
     useStore.getState().setUpdate({ state: "ready", info });
   } catch (e) {
     useStore.getState().setUpdate({ state: "available", info });
-    useStore.getState().showToast(`下载更新失败：${e}`);
+    useStore.getState().showToast(t(`下载更新失败：${e}`, `Update download failed: ${e}`));
   }
 }
 

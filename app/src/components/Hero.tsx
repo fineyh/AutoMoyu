@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
-import { clock, phaseText, secs } from "../lib/text";
+import { clock, fish, phaseText, secs } from "../lib/text";
 import type { Phase } from "../lib/types";
 import { Bobber } from "./ui";
 
@@ -33,8 +34,8 @@ export function Hero() {
   const s = status?.session;
   let sub = "";
   if (phase === "waiting" && s?.outForMs != null) sub = secs(s.outForMs);
-  else if (phase === "paused" && s) sub = `${clock(s.activeMs)} · 本次 ${s.catches} 条`;
-  else if (phase === "idle") sub = status?.calibration ? "按 F6 开始" : "先校准一次（约 10 秒）";
+  else if (phase === "paused" && s) sub = `${clock(s.activeMs)} · ${t("本次 ", "")}${fish(s.catches)}`;
+  else if (phase === "idle") sub = status?.calibration ? t("按 F6 开始", "Press F6 to start") : t("先校准一次（约 10 秒）", "Calibrate first (about 10 s)");
 
   return (
     <div className="hero" data-phase={scene[phase]} aria-live="polite">
@@ -44,7 +45,7 @@ export function Hero() {
       <div className="st">
         <span className="ph">
           <i />
-          {phaseText[phase]}
+          {phaseText(phase)}
         </span>
         {sub && <span className="t num">{sub}</span>}
       </div>

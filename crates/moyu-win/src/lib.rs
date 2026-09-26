@@ -6,6 +6,7 @@ pub mod capture;
 pub mod dpi;
 pub mod hook;
 pub mod input;
+pub mod locale;
 pub mod power;
 pub mod window;
 

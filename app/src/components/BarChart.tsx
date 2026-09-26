@@ -80,7 +80,7 @@ export function BarChart({ bars, unit, ariaLabel, showTable }: { bars: Bar[]; un
               key={b.key}
               tabIndex={0}
               role="img"
-              aria-label={`${b.title ?? b.label}：${b.value} ${unit}`}
+              aria-label={`${b.title ?? b.label}: ${b.value} ${unit}`}
               onPointerEnter={() => setHover(i)}
               onPointerLeave={() => setHover(null)}
               onFocus={() => setHover(i)}

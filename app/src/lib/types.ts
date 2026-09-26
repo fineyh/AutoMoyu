@@ -7,6 +7,7 @@ export type StopReason = "user" | "gameClosed" | "duration" | "catches" | "deadl
 export type RodState = "in" | "out" | "unknown";
 export type Quality = "poor" | "good" | "excellent";
 export type Source = "hand" | "hotbar";
+export type Lang = "zh" | "en";
 
 export interface RelRect { x: number; y: number; w: number; h: number }
 
@@ -75,6 +76,7 @@ export interface Status {
   audio: "process" | "system" | null;
   signal: SignalView | null;
   overlayOn: boolean;
+  lang: Lang;
 }
 
 export type EngineEvent =
@@ -105,7 +107,7 @@ export interface Settings {
   biteSource: "audio" | "visual";
   hotkeys: { toggle: string; overlay: string };
   autoStop: { kind: AutoStopKind; value: number };
-  ui: { theme: Theme; alwaysOnTop: boolean; closeToTray: boolean; overlay: boolean; catchSound: boolean };
+  ui: { theme: Theme; language: "auto" | Lang; alwaysOnTop: boolean; closeToTray: boolean; overlay: boolean; catchSound: boolean };
   notify: { onStop: boolean; onError: boolean };
   update: { auto: boolean; channel: "stable" | "beta"; skipVersion: string | null };
   advanced: {

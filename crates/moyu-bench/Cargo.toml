@@ -3,6 +3,7 @@ name = "moyu-bench"
 description = "AutoMoyu 命令行：probe 冒烟检查 / record 录制真实片段 / analyze 离线评估"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "moyu-bench"

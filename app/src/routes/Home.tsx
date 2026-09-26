@@ -7,6 +7,7 @@ import { Hero } from "../components/Hero";
 import { UpdateBanner } from "../components/UpdateBanner";
 import { Note, WindowPicker } from "../components/ui";
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import { clock, feedLine, pauseText, qualityText, secs, stopText, timeOf } from "../lib/text";
 import type { Mode, StatsView } from "../lib/types";
@@ -31,9 +32,10 @@ export function Home() {
   const setMode = (mode: Mode) => patch({ mode });
   const win = status?.window;
   const cal = status?.calibration;
-  let reason = paused && status?.pauseReason ? pauseText[status.pauseReason] : null;
+  let reason = paused && status?.pauseReason ? pauseText(status.pauseReason) : null;
   if (reason && status?.pauseReason === "userActive" && session?.resumeInMs != null) {
-    reason = { ...reason, hint: `停手 ${Math.ceil(session.resumeInMs / 1000)} 秒后自动继续` };
+    const n = Math.ceil(session.resumeInMs / 1000);
+    reason = { ...reason, hint: t(`停手 ${n} 秒后自动继续`, `Resuming in ${n} s if you stay idle`) };
   }
 
   const act = (kind: "focus" | "recalibrate" | "pickWindow") => {
@@ -45,26 +47,29 @@ export function Home() {
   let primary: { label: string; onClick: () => void; cls: string };
   if (!running) {
     primary = cal
-      ? { label: "开始钓鱼", onClick: () => void api.start(), cls: "" }
-      : { label: "校准并开始", onClick: () => void api.calOpen(), cls: "" };
+      ? { label: t("开始钓鱼", "Start fishing"), onClick: () => void api.start(), cls: "" }
+      : { label: t("校准并开始", "Calibrate & start"), onClick: () => void api.calOpen(), cls: "" };
   } else if (paused) {
-    primary = { label: "继续", onClick: () => void api.togglePause(), cls: "" };
+    primary = { label: t("继续", "Resume"), onClick: () => void api.togglePause(), cls: "" };
   } else {
-    primary = { label: "暂停", onClick: () => void api.togglePause(), cls: "running" };
+    primary = { label: t("暂停", "Pause"), onClick: () => void api.togglePause(), cls: "running" };
   }
 
   const rate = session && session.activeMs > 60_000 ? Math.round((session.catches * 3_600_000) / session.activeMs) : null;
-  const lastStop = !running && status?.lastStop && status.lastStop !== "user" ? stopText[status.lastStop] : null;
+  const lastStop = !running && status?.lastStop && status.lastStop !== "user" ? stopText(status.lastStop) : null;
+  const avgBite = (ms: number | null | undefined) => (ms ? (ms / 1000).toFixed(1) : "—");
 
   return (
     <>
       <UpdateBanner />
-      <div className="seg" role="group" aria-label="模式">
+      <div className="seg" role="group" aria-label={t("模式", "Mode")}>
         <button aria-pressed={status?.mode === "rodOnly"} disabled={running} onClick={() => setMode("rodOnly")}>
-          自动甩竿<small>有钓鱼机</small>
+          {t("自动甩竿", "Auto-cast")}
+          <small>{t("有钓鱼机", "With a fish farm")}</small>
         </button>
         <button aria-pressed={status?.mode === "full"} disabled={running} onClick={() => setMode("full")}>
-          全自动<small>无钓鱼机 · 测试版</small>
+          {t("全自动", "Full auto")}
+          <small>{t("无钓鱼机 · 测试版", "No farm · beta")}</small>
         </button>
       </div>
 
@@ -75,23 +80,27 @@ export function Home() {
           <>
             <i className={win.foreground ? "" : "warn"} />
             <span>
-              Minecraft · {win.w}×{win.h} · {cal ? "已校准" : "未校准"}
-              {status?.mode === "full" && running ? ` · 咬钩识别：${status.audio ? "声音" : "仅超时"}` : ""}
+              Minecraft · {win.w}×{win.h} · {cal ? t("已校准", "calibrated") : t("未校准", "not calibrated")}
+              {status?.mode === "full" && running
+                ? t(` · 咬钩识别：${status.audio ? "声音" : "仅超时"}`, ` · bites: ${status.audio ? "by sound" : "timeout only"}`)
+                : ""}
             </span>
             {cal ? (
-              <span className={`q ${cal.quality}`}>信号 {qualityText[cal.quality]}</span>
+              <span className={`q ${cal.quality}`}>
+                {t("信号", "Signal")} {qualityText(cal.quality)}
+              </span>
             ) : (
               <button className="q" onClick={() => void api.calOpen()}>
-                去校准
+                {t("去校准", "Calibrate")}
               </button>
             )}
           </>
         ) : (
           <>
             <i className="off" />
-            <span>没找到 Minecraft（窗口化或无边框）</span>
+            <span>{t("没找到 Minecraft（窗口化或无边框）", "Minecraft not found (windowed or borderless)")}</span>
             <button className="q" onClick={() => setPicker(true)}>
-              选择窗口
+              {t("选择窗口", "Pick window")}
             </button>
           </>
         )}
@@ -108,7 +117,11 @@ export function Home() {
       )}
       {lastStop && <Note tone="info" title={lastStop} />}
       {!cal && win && !running && (
-        <Note tone="info" title="第一次用，先校准一次" hint="程序自己甩两次竿，找出最好认的画面，约 10 秒" />
+        <Note
+          tone="info"
+          title={t("第一次用，先校准一次", "First time? Calibrate once")}
+          hint={t("程序自己甩两次竿，找出最好认的画面，约 10 秒", "AutoMoyu casts twice by itself to find the clearest spot, about 10 s")}
+        />
       )}
 
       <div className="btn-row">
@@ -116,7 +129,7 @@ export function Home() {
           {primary.label} <kbd>{key}</kbd>
         </button>
         {running && (
-          <button className="square" title="结束本次" aria-label="结束本次" onClick={() => void api.stop()}>
+          <button className="square" title={t("结束本次", "End session")} aria-label={t("结束本次", "End session")} onClick={() => void api.stop()}>
             <Square size={16} />
           </button>
         )}
@@ -127,24 +140,24 @@ export function Home() {
           <>
             <div>
               <b>{session.catches}</b>
-              <span>本次（条）</span>
+              <span>{t("本次（条）", "This session")}</span>
             </div>
             <div>
               <b>{clock(session.activeMs)}</b>
-              <span>用时</span>
+              <span>{t("用时", "Time")}</span>
             </div>
             {paused || rate === null ? (
               <div>
                 <b>
-                  {session.avgBiteMs ? (session.avgBiteMs / 1000).toFixed(1) : "—"}
-                  <small> 秒</small>
+                  {avgBite(session.avgBiteMs)}
+                  <small>{t(" 秒", " s")}</small>
                 </b>
-                <span>平均上钩</span>
+                <span>{t("平均上钩", "Avg bite")}</span>
               </div>
             ) : (
               <div>
                 <b>{rate}</b>
-                <span>条 / 小时</span>
+                <span>{t("条 / 小时", "fish / hour")}</span>
               </div>
             )}
           </>
@@ -152,24 +165,24 @@ export function Home() {
           <>
             <div>
               <b>{stats?.summary.todayCatches ?? "—"}</b>
-              <span>今日（条）</span>
+              <span>{t("今日（条）", "Today")}</span>
             </div>
             <div>
               <b>{stats?.summary.catches ?? "—"}</b>
-              <span>累计（条）</span>
+              <span>{t("累计（条）", "All time")}</span>
             </div>
             <div>
               <b>
-                {stats?.summary.avgBiteMs ? (stats.summary.avgBiteMs / 1000).toFixed(1) : "—"}
-                <small> 秒</small>
+                {avgBite(stats?.summary.avgBiteMs)}
+                <small>{t(" 秒", " s")}</small>
               </b>
-              <span>平均上钩</span>
+              <span>{t("平均上钩", "Avg bite")}</span>
             </div>
           </>
         )}
       </div>
 
-      <div className="label">动态</div>
+      <div className="label">{t("动态", "Activity")}</div>
       <ul className="feed" aria-live="polite">
         {feed
           .map((f) => ({ f, line: feedLine(f.event) }))
@@ -184,7 +197,12 @@ export function Home() {
           ))}
         {feed.length === 0 && (
           <li className="empty">
-            {running ? "等第一条上钩…" : `切回游戏按 ${key} 开始；${secs((settings?.advanced.maxWaitS ?? 60) * 1000, 0)}没上钩会自动重甩。`}
+            {running
+              ? t("等第一条上钩…", "Waiting for the first bite…")
+              : t(
+                  `切回游戏按 ${key} 开始；${secs((settings?.advanced.maxWaitS ?? 60) * 1000, 0)}没上钩会自动重甩。`,
+                  `Switch to the game and press ${key} to start. No bite within ${secs((settings?.advanced.maxWaitS ?? 60) * 1000, 0)} means an automatic recast.`,
+                )}
           </li>
         )}
       </ul>

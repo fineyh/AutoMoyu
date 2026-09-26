@@ -4,6 +4,7 @@ mod calib_store;
 mod commands;
 mod diagnostics;
 mod hotkeys;
+mod i18n;
 mod notify;
 mod overlay;
 mod service;
@@ -79,6 +80,7 @@ pub fn run() {
                 stats: stats.clone(),
                 service: OnceLock::new(),
             });
+            i18n::apply(settings.ui.language);
             tray::create(&handle)?;
             if let Err(e) = overlay::create(&handle) {
                 tracing::warn!("创建浮层失败：{e}");

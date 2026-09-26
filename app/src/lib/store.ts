@@ -3,7 +3,8 @@
 import { create } from "zustand";
 
 import { api, on } from "./api";
-import type { DeepPartial, FeedItem, Settings, Status, UpdateInfo } from "./types";
+import { getLang, setLang } from "./i18n";
+import type { DeepPartial, FeedItem, Lang, Settings, Status, UpdateInfo } from "./types";
 
 export type Tab = "home" | "stats" | "settings";
 
@@ -16,6 +17,8 @@ export type UpdateState =
 
 interface Store {
   status: Status | null;
+  /** 界面语言；变了整棵树重新渲染（见 main.tsx）。 */
+  lang: Lang;
   settings: Settings | null;
   feed: FeedItem[];
   tab: Tab;
@@ -31,6 +34,7 @@ interface Store {
 
 export const useStore = create<Store>((set) => ({
   status: null,
+  lang: getLang(),
   settings: null,
   feed: [],
   tab: "home",
@@ -57,9 +61,14 @@ export async function wireBackend() {
   if (wired) return;
   wired = true;
   const set = useStore.setState;
+  const withLang = (status: Status | null) => {
+    if (!status) return { status };
+    if (status.lang !== getLang()) setLang(status.lang);
+    return { status, lang: status.lang };
+  };
   const [status, settings] = await Promise.all([api.status(), api.settings()]);
-  set({ status, settings });
-  await on<Status>("status", (s) => set({ status: s }));
+  set({ ...withLang(status), settings });
+  await on<Status>("status", (s) => set(withLang(s)));
   await on<Settings>("settings-changed", (s) => set({ settings: s }));
   await on<string>("toast", (text) => set({ toast: { id: Date.now(), text } }));
   await on<string>("navigate", () => set({ tab: "home" }));

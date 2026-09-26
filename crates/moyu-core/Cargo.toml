@@ -3,6 +3,7 @@ name = "moyu-core"
 description = "AutoMoyu 纯算法：竿状态分类、校准、状态机、声音咬钩（无平台依赖，可单测）"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 serde.workspace = true

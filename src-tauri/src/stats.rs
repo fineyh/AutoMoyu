@@ -190,7 +190,7 @@ impl Stats {
 
     pub fn bite_buckets(&self) -> Result<Vec<Bucket>> {
         let edges: [(i64, i64, &str); 6] = [
-            (0, 5_000, "<5 秒"),
+            (0, 5_000, "<5"),
             (5_000, 10_000, "5–10"),
             (10_000, 15_000, "10–15"),
             (15_000, 20_000, "15–20"),
@@ -240,7 +240,8 @@ impl Stats {
 
     pub fn export_csv(&self, path: &Path) -> Result<usize> {
         let rows = self.recent(u32::MAX)?;
-        let mut s = String::from("\u{feff}开始时间,时长(秒),条数,模式,来源,结束原因\n");
+        let header = crate::i18n::t("开始时间,时长(秒),条数,模式,来源,结束原因", "started_at,duration_s,catches,mode,source,stop_reason");
+        let mut s = format!("\u{feff}{header}\n");
         for r in &rows {
             s.push_str(&format!(
                 "{},{:.0},{},{},{},{}\n",

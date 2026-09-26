@@ -73,7 +73,7 @@ pub async fn update_check(app: AppHandle, state: State<'_, AppState>, pending: S
 
 #[tauri::command]
 pub async fn update_download(app: AppHandle, pending: State<'_, PendingUpdate>) -> Result<(), String> {
-    let update = pending.lock().unwrap().update.clone().ok_or("没有可用的更新")?;
+    let update = pending.lock().unwrap().update.clone().ok_or(crate::i18n::t("没有可用的更新", "No update available"))?;
     let mut got = 0usize;
     let a2 = app.clone();
     let bytes = update
@@ -95,7 +95,7 @@ pub async fn update_download(app: AppHandle, pending: State<'_, PendingUpdate>) 
 pub async fn update_install(app: AppHandle, state: State<'_, AppState>, pending: State<'_, PendingUpdate>) -> Result<(), String> {
     let (update, bytes) = {
         let mut p = pending.lock().unwrap();
-        (p.update.clone().ok_or("没有可用的更新")?, p.bytes.take().ok_or("更新还没下载完")?)
+        (p.update.clone().ok_or(crate::i18n::t("没有可用的更新", "No update available"))?, p.bytes.take().ok_or(crate::i18n::t("更新还没下载完", "The update hasn't finished downloading"))?)
     };
     if let Some(s) = state.service.get() {
         s.shutdown();

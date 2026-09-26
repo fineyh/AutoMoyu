@@ -70,10 +70,21 @@ pub enum Theme {
     Dark,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Language {
+    /// 跟随 Windows 显示语言。
+    #[default]
+    Auto,
+    Zh,
+    En,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Ui {
     pub theme: Theme,
+    pub language: Language,
     pub always_on_top: bool,
     pub close_to_tray: bool,
     pub overlay: bool,
@@ -82,7 +93,7 @@ pub struct Ui {
 
 impl Default for Ui {
     fn default() -> Self {
-        Self { theme: Theme::System, always_on_top: false, close_to_tray: true, overlay: true, catch_sound: false }
+        Self { theme: Theme::System, language: Language::Auto, always_on_top: false, close_to_tray: true, overlay: true, catch_sound: false }
     }
 }
 

@@ -3,6 +3,7 @@
 import { ArrowDownCircle } from "lucide-react";
 
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import { download } from "../lib/updater";
 
@@ -24,31 +25,33 @@ export function UpdateBanner() {
         <ArrowDownCircle size={18} />
         <div>
           <b>
-            {update.state === "ready" ? `新版本 ${info.version} 已下载` : `发现新版本 ${info.version}`}
+            {update.state === "ready"
+              ? t(`新版本 ${info.version} 已下载`, `Version ${info.version} downloaded`)
+              : t(`发现新版本 ${info.version}`, `Version ${info.version} available`)}
           </b>
           {info.notes && <span className="notes">{info.notes}</span>}
         </div>
       </div>
       {update.state === "downloading" && (
-        <div className="bar" aria-label="下载进度">
+        <div className="bar" aria-label={t("下载进度", "Download progress")}>
           <i style={{ width: `${Math.round((update.progress ?? 0.05) * 100)}%` }} />
         </div>
       )}
       <div className="acts">
         <button className="link" style={{ marginRight: "auto", fontSize: 12 }} onClick={skip}>
-          跳过此版本
+          {t("跳过此版本", "Skip this version")}
         </button>
         <button className="ghost" onClick={() => setUpdate({ state: "none" })}>
-          稍后
+          {t("稍后", "Later")}
         </button>
         {update.state === "available" && (
           <button className="primary sm" onClick={() => void download()}>
-            下载
+            {t("下载", "Download")}
           </button>
         )}
         {update.state === "ready" && (
           <button className="primary sm" onClick={() => void api.updateInstall()}>
-            重启并更新
+            {t("重启并更新", "Restart & update")}
           </button>
         )}
       </div>

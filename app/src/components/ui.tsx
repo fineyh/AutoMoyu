@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronDown, Info } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { api } from "../lib/api";
+import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import type { GameWindow } from "../lib/types";
 
@@ -92,8 +93,8 @@ export function Toast() {
   useEffect(() => {
     if (!toast) return;
     setShown(toast.id);
-    const t = setTimeout(() => setShown(null), 3500);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setShown(null), 3500);
+    return () => clearTimeout(timer);
   }, [toast]);
   if (!toast || shown !== toast.id) return null;
   return (
@@ -117,23 +118,23 @@ export function WindowPicker({ onClose }: { onClose: () => void }) {
   };
   return (
     <div className="sheet-bg" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="选择游戏窗口">
+      <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={t("选择游戏窗口", "Pick the game window")}>
         <div className="wz">
-          <b>选择游戏窗口</b>
-          <button className="link" onClick={onClose}>关闭</button>
+          <b>{t("选择游戏窗口", "Pick the game window")}</b>
+          <button className="link" onClick={onClose}>{t("关闭", "Close")}</button>
         </div>
         <button className="win-item" onClick={() => pick(null)}>
-          <span>自动识别{settings?.advanced.window ? "" : "（当前）"}</span>
-          <small>按进程名和标题自动找 Minecraft</small>
+          <span>{t("自动识别", "Automatic")}{settings?.advanced.window ? "" : t("（当前）", " (current)")}</span>
+          <small>{t("按进程名和标题自动找 Minecraft", "Finds Minecraft by process name and title")}</small>
         </button>
-        {list === null && <div className="empty">正在列出窗口…</div>}
-        {list?.length === 0 && <div className="empty">没有可选的窗口。请先打开游戏，并改成窗口化或无边框。</div>}
+        {list === null && <div className="empty">{t("正在列出窗口…", "Listing windows…")}</div>}
+        {list?.length === 0 && <div className="empty">{t("没有可选的窗口。请先打开游戏，并改成窗口化或无边框。", "No windows to pick. Open the game first and switch it to windowed or borderless.")}</div>}
         {list?.map((w) => (
           <button className="win-item" key={w.hwnd} onClick={() => pick(w)}>
             <span>{w.title}</span>
             <small>
               {w.process} · {w.w}×{w.h}
-              {settings?.advanced.window?.title === w.title && settings.advanced.window.process === w.process ? " · 当前" : ""}
+              {settings?.advanced.window?.title === w.title && settings.advanced.window.process === w.process ? t(" · 当前", " · current") : ""}
             </small>
           </button>
         ))}

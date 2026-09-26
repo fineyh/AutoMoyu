@@ -46,8 +46,16 @@ pub fn set_settings(app: AppHandle, state: State<'_, AppState>, patch: Value) ->
             let mut cur = state.settings.lock().unwrap();
             cur.hotkeys = old.hotkeys.clone();
             let _ = cur.save();
-            return Err(format!("热键注册失败（可能被其他程序占用）：{e}"));
+            return Err(if crate::i18n::is_en() {
+                format!("Couldn't register the hotkey (another app may be using it): {e}")
+            } else {
+                format!("热键注册失败（可能被其他程序占用）：{e}")
+            });
         }
+    }
+    if old.ui.language != new.ui.language {
+        crate::i18n::apply(new.ui.language);
+        crate::tray::relabel();
     }
     if old.ui.always_on_top != new.ui.always_on_top {
         if let Some(w) = app.get_webview_window("main") {

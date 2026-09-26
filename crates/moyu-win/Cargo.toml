@@ -3,6 +3,7 @@ name = "moyu-win"
 description = "AutoMoyu Windows 平台层：找窗口、截图、SendInput、防睡眠、进程声音环回、鼠标钩子"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 moyu-core.workspace = true
@@ -15,6 +16,7 @@ wasapi = "0.24"
 version = "0.62"
 features = [
   "Win32_Foundation",
+  "Win32_Globalization",
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Dwm",
   "Win32_System_Threading",

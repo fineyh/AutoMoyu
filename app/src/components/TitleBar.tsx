@@ -4,6 +4,7 @@ import { Minus, Pin, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { api, currentWindow } from "../lib/api";
+import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import { Bobber } from "./ui";
 
@@ -23,16 +24,16 @@ export function TitleBar() {
       <span className="flex-1" data-tauri-drag-region />
       <button
         className={`tb-btn ${pinned ? "on" : ""}`}
-        title={pinned ? "取消置顶" : "窗口置顶"}
+        title={pinned ? t("取消置顶", "Unpin") : t("窗口置顶", "Keep on top")}
         aria-pressed={pinned}
         onClick={() => patch({ ui: { alwaysOnTop: !pinned } })}
       >
         <Pin size={14} />
       </button>
-      <button className="tb-btn" title="最小化" onClick={async () => (await currentWindow())?.minimize()}>
+      <button className="tb-btn" title={t("最小化", "Minimise")} onClick={async () => (await currentWindow())?.minimize()}>
         <Minus size={14} />
       </button>
-      <button className="tb-btn close" title="关闭" onClick={async () => (await currentWindow())?.close()}>
+      <button className="tb-btn close" title={t("关闭", "Close")} onClick={async () => (await currentWindow())?.close()}>
         <X size={14} />
       </button>
     </header>

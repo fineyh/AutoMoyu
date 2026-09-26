@@ -36,6 +36,8 @@
     "targets": ["nsis"],
     "createUpdaterArtifacts": true,
     "publisher": "fineyh",
+    "copyright": "© 2026 fineyh · MIT License",
+    "license": "MIT",
     "shortDescription": "Minecraft 基岩版自动钓鱼",
     "longDescription": "一次选择，一次校准，然后去摸鱼。",
     "category": "Utility",

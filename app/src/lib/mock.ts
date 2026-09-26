@@ -1,9 +1,11 @@
-// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|takeover|calib|done|nowin 切换场景。
+// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|takeover|calib|done|nowin 切换场景，&lang=en|zh 指定语言。
 // 只用于看界面，打包进 Tauri 后不会走到这里。
 
 import type { FeedItem, Settings, StatsView, Status } from "./types";
 
-const scene = new URLSearchParams(location.search).get("mock") ?? "running";
+const params = new URLSearchParams(location.search);
+const scene = params.get("mock") ?? "running";
+const lang = params.get("lang");
 const listeners = new Map<string, Set<(p: unknown) => void>>();
 const emit = (e: string, p: unknown) => listeners.get(e)?.forEach((cb) => cb(p));
 
@@ -13,7 +15,7 @@ const settings: Settings = {
   biteSource: "audio",
   hotkeys: { toggle: "F6", overlay: "F7" },
   autoStop: { kind: "none", value: 0 },
-  ui: { theme: "system", alwaysOnTop: false, closeToTray: true, overlay: true, catchSound: false },
+  ui: { theme: "system", language: lang === "en" || lang === "zh" ? lang : "auto", alwaysOnTop: false, closeToTray: true, overlay: true, catchSound: false },
   notify: { onStop: true, onError: true },
   update: { auto: true, channel: "beta", skipVersion: null },
   advanced: { clickHoldMs: 90, maxWaitS: 60, focusGuard: true, takeover: true, takeoverIdleS: 5, window: null, biteSensitivity: "normal", debugOverlay: false },
@@ -32,6 +34,7 @@ const status = (): Status => {
     phase: "idle", pauseReason: null, lastStop: null, mode: settings.mode, session: null,
     window: { title: "Minecraft", process: "Minecraft.Windows.exe", w: 1920, h: 1080, foreground: true, pinned: false },
     calibration: cal, calib: null, audio: null, signal: null, overlayOn: true,
+    lang: settings.ui.language !== "auto" ? settings.ui.language : navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en",
   };
   if (scene === "nowin") return { ...base, window: null, calibration: null };
   if (scene === "idle") return base;
@@ -81,7 +84,7 @@ const stats: StatsView = {
     { date: "2026-07-11", catches: 12 }, { date: "2026-07-12", catches: 34 },
   ],
   biteBuckets: [
-    { label: "<5 秒", count: 18 }, { label: "5–10", count: 61 }, { label: "10–15", count: 29 },
+    { label: "<5", count: 18 }, { label: "5–10", count: 61 }, { label: "10–15", count: 29 },
     { label: "15–20", count: 9 }, { label: "20–30", count: 4 }, { label: "30+", count: 1 },
   ],
   recent: [
@@ -103,6 +106,7 @@ export async function mockInvoke(cmd: string, args?: Record<string, unknown>): P
           v && typeof v === "object" && !Array.isArray(v) && cur && typeof cur === "object" ? { ...cur, ...v } : v;
       }
       emit("settings-changed", structuredClone(settings));
+      emit("status", status());
       return structuredClone(settings);
     }
     case "get_stats": return stats;

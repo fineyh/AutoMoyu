@@ -1,8 +1,9 @@
 // 游戏内浮层（独立的透明窗口，鼠标穿透，不被截图捕获）。
 // 平时是左上角一个状态胶囊；开了调试浮层时窗口铺满客户区，额外画出识别框。
 
+import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
-import { phaseText, secs } from "../lib/text";
+import { phaseText } from "../lib/text";
 
 export function Overlay() {
   const st = useStore((s) => s.status);
@@ -10,17 +11,20 @@ export function Overlay() {
   if (!st) return null;
   const c = st.calib;
   const paused = st.phase === "paused";
-  let text: string = phaseText[st.phase];
+  let text: string = phaseText(st.phase);
   let extra: string | null = null;
   if (c?.step === "countdown") {
-    text = "校准即将开始";
+    text = t("校准即将开始", "Calibration starting");
   } else if (c?.step === "sampling") {
-    text = "校准中 · 别动鼠标";
+    text = t("校准中 · 别动鼠标", "Calibrating · keep the mouse still");
   } else if (st.pauseReason === "userActive") {
-    text = "你在操作";
-    if (st.session?.resumeInMs != null) extra = `${Math.ceil(st.session.resumeInMs / 1000)}s 后继续`;
+    text = t("你在操作", "You're playing");
+    if (st.session?.resumeInMs != null) {
+      const n = Math.ceil(st.session.resumeInMs / 1000);
+      extra = t(`${n}s 后继续`, `resuming in ${n}s`);
+    }
   } else if (st.phase === "waiting" && st.session?.outForMs != null) {
-    extra = secs(st.session.outForMs).replace(" 秒", "s");
+    extra = `${(st.session.outForMs / 1000).toFixed(1)}s`;
   }
   const roi = st.calibration?.rel;
   return (
@@ -33,7 +37,9 @@ export function Overlay() {
         {st.session && (
           <>
             <span className="sep" />
-            本次 <b>{st.session.catches}</b> 条
+            {t("本次 ", "")}
+            <b>{st.session.catches}</b>
+            {t(" 条", " fish")}
           </>
         )}
       </div>
@@ -43,7 +49,7 @@ export function Overlay() {
           style={{ left: `${roi.x * 100}%`, top: `${roi.y * 100}%`, width: `${roi.w * 100}%`, height: `${roi.h * 100}%` }}
         >
           <span>
-            {st.signal?.rod === "in" ? "收回" : st.signal?.rod === "out" ? "甩出" : "识别区域"}
+            {st.signal?.rod === "in" ? t("收回", "reeled in") : st.signal?.rod === "out" ? t("甩出", "cast out") : t("识别区域", "detection area")}
             {st.signal ? ` · ${st.signal.dIn.toFixed(0)}/${st.signal.dOut.toFixed(0)}` : ""}
           </span>
         </div>
