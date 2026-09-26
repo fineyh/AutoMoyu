@@ -3,8 +3,6 @@
 # 需要的仓库 Secrets：
 #   TAURI_SIGNING_PRIVATE_KEY           ~/.tauri/automoyu.key 的内容（务必另外离线备份！）
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  生成时的密码（没设就留空字符串）
-# 可选（国内镜像）：
-#   GITEE_TOKEN                         Gitee 私人令牌；没配置就跳过镜像
 #
 # 通道：
 #   稳定版  → GitHub "latest" release（带 - 的版本号自动标为 prerelease，不会成为 latest）
@@ -58,11 +56,3 @@ jobs:
               --notes "自动维护，请勿手动修改。测试版用户从这里获取更新清单。"
           gh release upload updater-beta out/latest.json --clobber
 
-      - name: 同步到 Gitee 镜像（可选）
-        if: ${{ env.GITEE_TOKEN != '' }}
-        shell: bash
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          echo "TODO: 用 Gitee Releases API 上传安装包，并把 latest.json 里的下载地址换成 Gitee 的"
-          echo "      （镜像仓库建好后再补；GitHub 源不受影响）"

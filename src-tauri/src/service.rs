@@ -651,6 +651,12 @@ impl Svc {
             }
             Event::Empty { waited_ms } => record("empty", serde_json::json!({ "waitedMs": waited_ms }), &self.stats),
             Event::Bounced { out_ms } => record("bounced", serde_json::json!({ "outMs": out_ms }), &self.stats),
+            Event::Lagged { in_ms, count } => {
+                if *count == 1 {
+                    tracing::info!("甩竿画面回跳（服务器延迟），收回持续 {in_ms} ms");
+                }
+                record("lagged", serde_json::json!({ "inMs": in_ms }), &self.stats)
+            }
             Event::Catch { bite_wait_ms, total } => {
                 record("catch", serde_json::json!({ "biteWaitMs": bite_wait_ms }), &self.stats);
                 if let Some(s) = self.session.as_mut() {

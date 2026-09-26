@@ -1,7 +1,7 @@
 //! 统计库：`%APPDATA%\AutoMoyu\stats.db`（SQLite）。
 //!
 //! - sessions：一场一行（开始/结束、模式、条数、有效时长、结束原因、来源 app，或 legacy = 从 v0.1 导入的旧记录）。
-//! - events：cast / catch / empty / bounced / castFailed / pause / resume / stop，data 为 JSON。
+//! - events：cast / catch / empty / bounced / lagged / castFailed / pause / resume / stop，data 为 JSON。
 
 use std::path::Path;
 

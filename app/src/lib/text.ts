@@ -73,6 +73,9 @@ export function feedLine(e: EngineEvent): { text: string; sub?: string; tone?: "
       return { text: "等太久没上钩，收竿重甩", sub: secs(e.waitedMs, 0) };
     case "bounced":
       return { text: "刚甩出就被收回，等一下再甩", sub: secs(e.outMs) };
+    case "lagged":
+      // 高延迟服务器每竿都会有，只提示一次
+      return e.count === 1 ? { text: "服务器延迟高，甩竿画面会回跳，已自动适应" } : null;
     case "castFailed":
       return { text: "没甩出去，重试", sub: `第 ${e.consecutive} 次`, tone: "warn" };
     case "reel":

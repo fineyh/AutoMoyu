@@ -4,6 +4,8 @@
 //! - 收回 → 甩竿；2 秒内没变"甩出"算一次失败，连续 3 次暂停。
 //! - 甩出 → （全自动）听到咬钩就收竿；超过最长等待也收竿（保险）。
 //! - 甩出 → 收回（且甩出 ≥1 秒）= 钓到一条。
+//! - 甩出不到 1 秒就收回：先等一会儿。没再点它自己又甩出 = 服务器延迟造成的画面回跳，照常等鱼；
+//!   一直是收回 = 真被收了（弹回），再甩。
 //! - 玩家在操作（接管）→ 让出控制；停手后竿状态从头认，接管期间的变化不算。
 //!
 //! sans-IO：调用方喂 `Observation`，按返回的 `Output::Click` 去点，把 `Output::Event` 转给界面/统计。
@@ -159,6 +161,9 @@ pub enum Event {
     Empty { waited_ms: u64 },
     /// 甩出去很快又被收回（多半是钓鱼机还没复位就把新的一竿收了），没算钓到。
     Bounced { out_ms: u64 },
+    /// 甩竿后竿先显示甩出、又跳回收回、再自己甩出：服务器延迟高，客户端先演、服务器后纠正。
+    /// 这一竿照常等鱼。`count` 为本次钓鱼第几次出现。
+    Lagged { in_ms: u64, count: u32 },
     Paused { reason: PauseReason },
     Resumed,
     Stopped { reason: StopReason, catches: u32, active_ms: u64 },
@@ -189,6 +194,13 @@ pub struct Engine {
     reel_cause: Option<ReelCause>,
     cooldown_until: u64,
     caught_until: u64,
+    /// 刚甩出就收回、还没定性（回跳还是弹回）：(收回时刻, 甩出了多久)。
+    pending_bounce: Option<(u64, u64)>,
+    /// 最近几次回跳"收回"持续了多久，用来拉长等待，别在服务器还没纠正回来时补甩。
+    lag_in_ms: Vec<u64>,
+    lag_count: u32,
+    /// 连着弹回几次；越多等得越久（钓鱼机没复位，或回跳比当前等待还长）。
+    bounce_streak: u32,
     phase: Phase,
     emitted: (Phase, Option<PauseReason>),
 }
@@ -214,6 +226,10 @@ impl Engine {
             reel_cause: None,
             cooldown_until: 0,
             caught_until: 0,
+            pending_bounce: None,
+            lag_in_ms: Vec::new(),
+            lag_count: 0,
+            bounce_streak: 0,
             phase: Phase::Idle,
             emitted: (Phase::Idle, None),
         }
@@ -324,6 +340,7 @@ impl Engine {
         self.cast_at = None;
         self.caught_until = 0;
         self.cooldown_until = 0;
+        self.pending_bounce = None;
     }
 
     fn emit_phase(&mut self, out: &mut Vec<Output>) {
@@ -425,6 +442,17 @@ impl Engine {
                 if self.cast_at.take().is_some() {
                     self.cast_failures = 0;
                 }
+                if let Some((in_at, _)) = self.pending_bounce.take() {
+                    // 没再点，竿自己又甩出去了：是延迟回跳，不是弹回
+                    let in_ms = now.saturating_sub(in_at);
+                    self.lag_count += 1;
+                    if self.lag_in_ms.len() >= 8 {
+                        self.lag_in_ms.remove(0);
+                    }
+                    self.lag_in_ms.push(in_ms);
+                    self.bounce_streak = 0;
+                    out.push(Output::Event(Event::Lagged { in_ms, count: self.lag_count }));
+                }
                 if self.last_known != Some(RodState::Out) || self.out_since.is_none() {
                     self.out_since = Some(now);
                 }
@@ -435,13 +463,15 @@ impl Engine {
                     if let Some(since) = self.out_since.filter(|_| self.pause.is_none()) {
                         let waited = now.saturating_sub(since);
                         if waited < self.cfg.min_out_for_catch_ms {
-                            // 刚甩出就被收回：马上再甩多半还会被收，等钓鱼机复位
-                            out.push(Output::Event(Event::Bounced { out_ms: waited }));
-                            self.cooldown_until = now + self.cfg.bounce_backoff_ms;
+                            // 刚甩出就被收回：可能是延迟回跳（稍后自己甩出），也可能是被钓鱼机收了。
+                            // 先等：马上补甩会把服务器那边还在的一竿收回来，也可能又被钓鱼机收掉。
+                            self.pending_bounce = Some((now, waited));
+                            self.cooldown_until = now + self.bounce_wait_ms();
                         } else if self.reel_cause == Some(ReelCause::Timeout) {
                             out.push(Output::Event(Event::Empty { waited_ms: waited }));
                         } else {
                             self.catches += 1;
+                            self.bounce_streak = 0;
                             let bite_wait_ms = self.reel_at.map_or(waited, |r| r.saturating_sub(since));
                             out.push(Output::Event(Event::Catch { bite_wait_ms, total: self.catches }));
                             self.caught_until = now + 900;
@@ -462,6 +492,15 @@ impl Engine {
         }
     }
 
+    /// 刚甩出就收回后等多久再补甩：至少 `bounce_backoff_ms`，连续弹回每次多等一半；
+    /// 见过延迟回跳就按最近最长的回跳再加余量。最多 4 秒。
+    fn bounce_wait_ms(&self) -> u64 {
+        let base = self.cfg.bounce_backoff_ms;
+        let streak = base + base * u64::from(self.bounce_streak.min(4)) / 2;
+        let lag = self.lag_in_ms.iter().max().map_or(0, |m| m + 700);
+        streak.max(lag).min(base.max(4_000))
+    }
+
     fn act(&mut self, obs: &Observation, out: &mut Vec<Output>) {
         let now = obs.now_ms;
         match self.stable {
@@ -478,6 +517,10 @@ impl Engine {
                     }
                 }
                 if self.cast_at.is_none() && now >= self.cooldown_until {
+                    if let Some((_, out_ms)) = self.pending_bounce.take() {
+                        self.bounce_streak += 1;
+                        out.push(Output::Event(Event::Bounced { out_ms }));
+                    }
                     out.push(Output::Click);
                     out.push(Output::Event(Event::Cast));
                     self.cast_at = Some(now);
@@ -531,6 +574,10 @@ mod tests {
         cast_works: bool,
         /// 接下来这么多竿甩出 300ms 就被钓鱼机收回。
         bounces: u32,
+        /// 服务器延迟：每次甩竿先甩出 .0 ms，跳回收回 .1 ms，再自己甩出。
+        flicker: Option<(u64, u64)>,
+        flick_stage: u8,
+        flick_at: u64,
         window: WindowObs,
         user_active: bool,
         bite_at: Option<u64>,
@@ -548,6 +595,9 @@ mod tests {
                 out_at: 0,
                 cast_works: true,
                 bounces: 0,
+                flicker: None,
+                flick_stage: 0,
+                flick_at: 0,
                 window: WindowObs::Ok,
                 user_active: false,
                 bite_at: None,
@@ -567,6 +617,7 @@ mod tests {
                             In if self.cast_works => {
                                 self.rod = Out;
                                 self.out_at = self.t;
+                                self.flick_stage = u8::from(self.flicker.is_some());
                             }
                             Out => self.rod = In,
                             _ => {}
@@ -580,6 +631,17 @@ mod tests {
             let end = self.t + ms;
             while self.t < end {
                 self.t += 66;
+                if let Some((fo, fi)) = self.flicker {
+                    if self.rod == Out && self.flick_stage == 1 && self.t - self.out_at >= fo {
+                        self.rod = In;
+                        self.flick_stage = 2;
+                        self.flick_at = self.t;
+                    } else if self.rod == In && self.flick_stage == 2 && self.t - self.flick_at >= fi {
+                        self.rod = Out;
+                        self.out_at = self.t;
+                        self.flick_stage = 0;
+                    }
+                }
                 if self.rod == Out && self.bounces > 0 && self.t - self.out_at >= 300 {
                     self.rod = In;
                     self.bounces -= 1;
@@ -626,13 +688,39 @@ mod tests {
         let mut s = Sim::new(EngineConfig::default());
         s.bounces = 1;
         s.run(1_500);
-        assert_eq!(s.count(|e| matches!(e, Event::Bounced { .. })), 1);
         assert_eq!(s.clicks, 1, "弹回后应先等钓鱼机复位");
         s.run(1_000);
         assert_eq!(s.clicks, 2);
+        assert_eq!(s.count(|e| matches!(e, Event::Bounced { .. })), 1);
         s.run(6_000);
         assert_eq!(s.e.catches(), 1);
         assert_eq!(s.count(|e| matches!(e, Event::CastFailed { .. })), 0);
+    }
+
+    #[test]
+    fn lag_flicker_is_not_a_bounce() {
+        // 实测高延迟服务器：甩出约 265 ms → 跳回收回约 700 ms → 自己甩出
+        let mut s = Sim::new(EngineConfig::default());
+        s.flicker = Some((265, 700));
+        s.run(60_000);
+        assert_eq!(s.count(|e| matches!(e, Event::Bounced { .. })), 0);
+        assert!(s.count(|e| matches!(e, Event::Lagged { .. })) >= 8);
+        assert_eq!(s.count(|e| matches!(e, Event::CastFailed { .. })), 0);
+        let catches = s.count(|e| matches!(e, Event::Catch { .. }));
+        assert!((catches..=catches + 1).contains(&(s.clicks as usize)), "回跳期间不能补甩：clicks={}", s.clicks);
+        assert!(catches >= 8, "catches={catches}");
+    }
+
+    #[test]
+    fn long_lag_flicker_extends_the_wait() {
+        // 回跳收回 1.8 s，比默认 1.5 s 的等待还长：头一两次会误补，之后应学会多等
+        let mut s = Sim::new(EngineConfig::default());
+        s.flicker = Some((265, 1_800));
+        s.run(60_000);
+        let bounced = s.count(|e| matches!(e, Event::Bounced { .. }));
+        assert!(bounced <= 2, "bounced={bounced}");
+        assert!(s.count(|e| matches!(e, Event::Lagged { .. })) >= 5);
+        assert!(s.e.catches() >= 5);
     }
 
     #[test]

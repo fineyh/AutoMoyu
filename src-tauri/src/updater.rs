@@ -1,4 +1,4 @@
-//! 检查更新：GitHub 在前、国内镜像在后，失败自动换下一个；更新包 minisign 签名校验。
+//! 检查更新：从 GitHub Releases 拿更新清单；更新包 minisign 签名校验。
 //! 后台下载，钓鱼进行中不打扰（由前端决定何时提示"重启以完成更新"）。
 
 use std::sync::Mutex;
@@ -23,15 +23,9 @@ pub fn pending() -> PendingUpdate {
 
 fn endpoints(ch: Channel) -> Vec<Url> {
     let list: &[&str] = match ch {
-        Channel::Stable => &[
-            "https://github.com/fineyh/AutoMoyu/releases/latest/download/latest.json",
-            "https://gitee.com/fineyh/AutoMoyu/releases/download/latest/latest.json",
-        ],
+        Channel::Stable => &["https://github.com/fineyh/AutoMoyu/releases/latest/download/latest.json"],
         // 测试通道：每次发版（含 beta 和正式版）都会刷新这里
-        Channel::Beta => &[
-            "https://github.com/fineyh/AutoMoyu/releases/download/updater-beta/latest.json",
-            "https://gitee.com/fineyh/AutoMoyu/releases/download/updater-beta/latest.json",
-        ],
+        Channel::Beta => &["https://github.com/fineyh/AutoMoyu/releases/download/updater-beta/latest.json"],
     };
     list.iter().filter_map(|u| Url::parse(u).ok()).collect()
 }
