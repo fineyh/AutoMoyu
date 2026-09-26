@@ -4,3 +4,10 @@ data/
 .venv/
 venv/
 docs/
+target/
+node_modules/
+app/dist/
+src-tauri/gen/
+fixtures/*/
+!fixtures/README.md
+*.key

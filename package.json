@@ -1,0 +1,16 @@
+{
+  "name": "automoyu-workspace",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri",
+    "web": "pnpm --dir app dev",
+    "typecheck": "pnpm --dir app typecheck",
+    "test": "cargo test --workspace && pnpm --dir app typecheck"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5"
+  }
+}

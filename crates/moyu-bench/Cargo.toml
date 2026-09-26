@@ -1,0 +1,23 @@
+[package]
+name = "moyu-bench"
+description = "AutoMoyu 命令行：probe 冒烟检查 / record 录制真实片段 / analyze 离线评估"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "moyu-bench"
+path = "src/main.rs"
+
+[dependencies]
+moyu-core.workspace = true
+moyu-win.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+png = "0.18"
+hound = "3.5"
+chrono = "0.4"
+ctrlc = "3.5"
