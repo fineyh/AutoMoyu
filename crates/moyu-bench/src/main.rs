@@ -4,9 +4,11 @@
 //! moyu-bench probe                      # 找窗口、截一张图，确认截得到游戏画面
 //! moyu-bench record fixtures/day-machine --scenario machine
 //! moyu-bench analyze fixtures/day-machine
+//! moyu-bench dusk fixtures/day-machine fixtures/night-machine
 //! ```
 
 mod analyze;
+mod dusk;
 mod fixture;
 mod probe;
 mod record;
@@ -57,6 +59,22 @@ enum Cmd {
         #[arg(long)]
         json: Option<PathBuf>,
     },
+    /// 模拟黄昏：白天录像校准，画面逐渐过渡到夜晚录像，看竿状态跟不跟得住。
+    Dusk {
+        day: PathBuf,
+        night: PathBuf,
+        /// 过渡用多少秒
+        #[arg(long, default_value_t = 90)]
+        seconds: u32,
+        /// 夜晚背景额外压暗的倍数（竿不压），可给多个
+        #[arg(long, value_delimiter = ',', default_value = "1,0.6,0.35,0.2")]
+        darken: Vec<f32>,
+        /// 夜晚竿也一起压暗的倍数
+        #[arg(long, default_value_t = 1.0)]
+        rod_darken: f32,
+        #[arg(long, default_value_t = 5)]
+        seeds: u32,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -66,5 +84,6 @@ fn main() -> anyhow::Result<()> {
         Cmd::Probe { out } => probe::run(&out),
         Cmd::Record { dir, scenario, fps, minutes } => record::run(&dir, scenario, fps, minutes),
         Cmd::Analyze { dir, json } => analyze::run(&dir, json.as_deref()),
+        Cmd::Dusk { day, night, seconds, darken, rod_darken, seeds } => dusk::run(&day, &night, seconds, &darken, rod_darken, seeds),
     }
 }

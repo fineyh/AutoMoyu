@@ -57,14 +57,27 @@ struct AudioReport {
     false_per_10min_out: f32,
 }
 
-struct Labeled {
-    idx: usize,
-    state: RodState,
+pub struct Labeled {
+    pub idx: usize,
+    pub state: RodState,
     /// false = 只用来校准，不计入准确率（钓鱼机模式下甩竿前的"收回"）。
-    certain: bool,
+    pub certain: bool,
 }
 
-pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
+/// 一段录像：帧、右键和由右键推出的竿状态标注。
+pub struct Loaded {
+    pub meta: Meta,
+    pub geom: Geometry,
+    pub frames: Vec<FrameRec>,
+    /// 只有游戏在前台的帧才有图。
+    pub grids: Vec<Option<Grid>>,
+    pub clicks: Vec<u64>,
+    pub casts: Vec<u64>,
+    pub reels: Vec<u64>,
+    pub labeled: Vec<Labeled>,
+}
+
+pub fn load(dir: &Path) -> Result<Loaded> {
     let meta: Meta =
         serde_json::from_str(&std::fs::read_to_string(dir.join("meta.json")).context("meta.json")?)?;
     let frames: Vec<FrameRec> = read_jsonl(&dir.join("frames.jsonl"))?;
@@ -82,8 +95,6 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
         let p = dir.join(format!("union/{:06}.png", f.i));
         grids.push(if f.foreground && p.exists() { Some(load_png(&p)?) } else { None });
     }
-    let have = grids.iter().filter(|g| g.is_some()).count();
-    println!("{} 帧（有画面 {have}），右键 {} 次，场景 {:?}", frames.len(), clicks.len(), meta.scenario);
 
     // ---- 标注 ----
     let (casts, reels): (Vec<u64>, Vec<u64>) = match meta.scenario {
@@ -123,6 +134,14 @@ pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
             labeled.push(Labeled { idx, state, certain });
         }
     }
+    Ok(Loaded { meta, geom, frames, grids, clicks, casts, reels, labeled })
+}
+
+pub fn run(dir: &Path, json: Option<&Path>) -> Result<()> {
+    let Loaded { meta, geom, frames, grids, clicks, casts, reels, labeled } = load(dir)?;
+    let have = grids.iter().filter(|g| g.is_some()).count();
+    println!("{} 帧（有画面 {have}），右键 {} 次，场景 {:?}", frames.len(), clicks.len(), meta.scenario);
+
     let li: Vec<&Labeled> = labeled.iter().filter(|l| l.state == RodState::In).collect();
     let lo: Vec<&Labeled> = labeled.iter().filter(|l| l.state == RodState::Out).collect();
     ensure!(

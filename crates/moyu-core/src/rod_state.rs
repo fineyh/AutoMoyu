@@ -11,6 +11,11 @@ use crate::image::{mad, Grid};
 pub const DECISION_RATIO: f32 = 0.6;
 /// 运行中模板自适应速率（仅高置信帧）。
 pub const ADAPT_ALPHA: f32 = 0.05;
+/// 两张模板在某像素上平均每通道差不到 亮度×FRAC + FLOOR，就算两个状态共有的背景。
+const SHARED_FRAC: f32 = 0.15;
+const SHARED_FLOOR: f32 = 8.0;
+/// 前景增益范围两端各再放宽这么多。
+const GAIN_SLACK: f32 = 0.15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,10 +50,65 @@ pub struct RodModel {
     pub tau_out: f32,
     /// 校准时两模板间的距离，仅用于诊断/显示。
     pub between: f32,
+    /// 两个状态共有的背景像素（校准时定下，之后不变：竿在画面里的位置是固定的）。
+    /// 旧版校准文件没有这一项，第一次用时由模板算出。
+    #[serde(default)]
+    shared: Vec<bool>,
+    /// 这张模板的前景（只有这个状态才有的像素，如手里的竿）上次更新以来，背景的明暗变了多少倍。
+    #[serde(skip, default = "unity")]
+    gain_in: f32,
+    #[serde(skip, default = "unity")]
+    gain_out: f32,
 }
 
-fn luma(px: &[[f32; 3]]) -> f32 {
-    px.iter().map(|c| 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]).sum::<f32>() / px.len().max(1) as f32
+fn unity() -> f32 {
+    1.0
+}
+
+fn luma(c: &[f32; 3]) -> f32 {
+    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+}
+
+/// 两张模板几乎一样的像素：两个状态共有的背景。
+fn shared_mask(a: &[[f32; 3]], b: &[[f32; 3]]) -> Vec<bool> {
+    a.iter()
+        .zip(b)
+        .map(|(p, q)| {
+            let d = (0..3).map(|c| (p[c] - q[c]).abs()).sum::<f32>() / 3.0;
+            d < SHARED_FRAC * luma(p).max(luma(q)) + SHARED_FLOOR
+        })
+        .collect()
+}
+
+fn luma_where(px: &[[f32; 3]], mask: &[bool]) -> f32 {
+    px.iter().zip(mask).filter(|(_, &m)| m).map(|(c, _)| luma(c)).sum()
+}
+
+/// 当前帧到模板的距离（每像素每通道平均绝对差）。
+/// 背景像素直接比；前景像素允许整体乘一个增益：前景没看到的这段时间里，
+/// 它的明暗可能完全没变（水下、火把旁天黑时水暗了、竿不变），也可能和背景一样变了（露天只靠天光），
+/// 所以增益限制在 [1, 背景变化倍数] 之间（再留点余量）。背景本身不放宽，
+/// 菜单那种整屏突然变暗仍然认不出。
+fn distance(f: &[[f32; 3]], t: &[[f32; 3]], shared: &[bool], bg_gain: f32) -> f32 {
+    if f.is_empty() {
+        return 0.0;
+    }
+    let (mut num, mut den) = (0.0f32, 0.0f32);
+    for ((p, q), _) in f.iter().zip(t).zip(shared).filter(|(_, &s)| !s) {
+        for c in 0..3 {
+            num += p[c] * q[c];
+            den += q[c] * q[c];
+        }
+    }
+    let lo = bg_gain.min(1.0) * (1.0 - GAIN_SLACK);
+    let hi = bg_gain.max(1.0) * (1.0 + GAIN_SLACK);
+    let g = if den > 0.0 { (num / den).clamp(lo, hi) } else { 1.0 };
+    let mut sum = 0.0f32;
+    for ((p, q), &s) in f.iter().zip(t).zip(shared) {
+        let k = if s { 1.0 } else { g };
+        sum += (p[0] - k * q[0]).abs() + (p[1] - k * q[1]).abs() + (p[2] - k * q[2]).abs();
+    }
+    sum / (f.len() * 3) as f32
 }
 
 impl RodModel {
@@ -63,6 +123,7 @@ impl RodModel {
         let max_j = |fs: &[Grid], t: &Grid| fs.iter().map(|f| mad(&f.px, &t.px)).fold(0.0f32, f32::max);
         // 未知判定只用来发现"完全不像"（菜单、换了物品）；收回/甩出之间靠最近邻比较决定。
         let tau = |j: f32| (3.0 * j).clamp(between, 1.5 * between);
+        let shared = shared_mask(&tpl_in.px, &tpl_out.px);
         Self {
             w: tpl_in.w,
             h: tpl_in.h,
@@ -72,6 +133,9 @@ impl RodModel {
             tpl_in: tpl_in.px,
             tpl_out: tpl_out.px,
             between,
+            shared,
+            gain_in: 1.0,
+            gain_out: 1.0,
         }
     }
 
@@ -92,8 +156,15 @@ impl RodModel {
     }
 
     fn classify_features(&self, f: &Grid) -> Classification {
-        let d_in = mad(&f.px, &self.tpl_in);
-        let d_out = mad(&f.px, &self.tpl_out);
+        let computed;
+        let shared = if self.shared.len() == self.tpl_in.len() {
+            &self.shared
+        } else {
+            computed = shared_mask(&self.tpl_in, &self.tpl_out);
+            &computed
+        };
+        let d_in = distance(&f.px, &self.tpl_in, shared, self.gain_in);
+        let d_out = distance(&f.px, &self.tpl_out, shared, self.gain_out);
         let state = if d_in < self.tau_in && d_in < DECISION_RATIO * d_out {
             RodState::In
         } else if d_out < self.tau_out && d_out < DECISION_RATIO * d_in {
@@ -109,24 +180,33 @@ impl RodModel {
         if g.w != self.w || g.h != self.h {
             return self.classify(g);
         }
+        if self.shared.len() != self.tpl_in.len() {
+            self.shared = shared_mask(&self.tpl_in, &self.tpl_out);
+        }
         let f = self.features(g);
         let c = self.classify_features(&f);
-        let (own, other, d_own, d_other) = match c.state {
-            RodState::In => (&mut self.tpl_in, &mut self.tpl_out, c.d_in, c.d_out),
-            RodState::Out => (&mut self.tpl_out, &mut self.tpl_in, c.d_out, c.d_in),
+        let shared = &self.shared;
+        let (own, other, own_gain, other_gain, d_own, d_other) = match c.state {
+            RodState::In => (&mut self.tpl_in, &mut self.tpl_out, &mut self.gain_in, &mut self.gain_out, c.d_in, c.d_out),
+            RodState::Out => (&mut self.tpl_out, &mut self.tpl_in, &mut self.gain_out, &mut self.gain_in, c.d_out, c.d_in),
             RodState::Unknown => return c,
         };
         if d_own < 0.45 * d_other {
-            // 整体明暗变化对两个状态是一样的：看到的这张模板跟着当前帧走，
-            // 另一张按同样的亮度比例缩放，这样甩出等了很久再收回时也认得出。
-            let before = luma(own);
-            for (t, p) in own.iter_mut().zip(&f.px) {
+            // 看到的这张模板跟着当前帧走；共有的背景在另一张模板里也同步更新，
+            // 另一张的前景（比如竿）这时看不到，不动它，只记下背景又变了多少倍，分类时据此放宽。
+            let before = luma_where(other, shared);
+            for ((t, o), (p, &s)) in own.iter_mut().zip(other.iter_mut()).zip(f.px.iter().zip(shared)) {
                 for ch in 0..3 {
                     t[ch] += ADAPT_ALPHA * (p[ch] - t[ch]);
+                    if s {
+                        o[ch] += ADAPT_ALPHA * (p[ch] - o[ch]);
+                    }
                 }
             }
-            let gain = luma(own) / before.max(1e-3);
-            other.iter_mut().for_each(|t| *t = t.map(|v| v * gain));
+            if before > 1.0 {
+                *other_gain *= luma_where(other, shared) / before;
+            }
+            *own_gain += ADAPT_ALPHA * (1.0 - *own_gain);
         }
         c
     }
@@ -144,6 +224,11 @@ pub(crate) mod tests {
 
     /// 合成一小块"手持鱼竿"：收回时竿头在 (x0,y0)，甩出时竿头上抬，另加噪声。
     pub fn synth(state: RodState, w: usize, h: usize, light: f32, seed: u32) -> Grid {
+        synth_lit(state, w, h, light, light, seed)
+    }
+
+    /// 背景和竿（含线）分别给亮度：水下/火把旁天黑时两者变化不一样。
+    pub fn synth_lit(state: RodState, w: usize, h: usize, light: f32, rod_light: f32, seed: u32) -> Grid {
         let mut g = Grid::filled(w, h, [90.0 * light, 140.0 * light, 200.0 * light]);
         let mut s = seed.wrapping_mul(2654435761).wrapping_add(1);
         for p in g.px.iter_mut() {
@@ -156,13 +241,13 @@ pub(crate) mod tests {
         let tip = if state == RodState::Out { h / 4 } else { h / 2 };
         for y in tip..h {
             for x in w / 2..w / 2 + 2 {
-                g.set(x, y, [60.0 * light, 40.0 * light, 20.0 * light]);
+                g.set(x, y, [60.0 * rod_light, 40.0 * rod_light, 20.0 * rod_light]);
             }
         }
         if state == RodState::Out {
             // 线：一条细亮线
             for y in 0..tip {
-                g.set(w / 2, y, [220.0 * light, 220.0 * light, 220.0 * light]);
+                g.set(w / 2, y, [220.0 * rod_light, 220.0 * rod_light, 220.0 * rod_light]);
             }
         }
         g
@@ -207,6 +292,41 @@ pub(crate) mod tests {
             light *= 0.999;
             i += 1;
         }
+    }
+
+    /// 按自动甩竿的节奏（甩出 8 秒、收回 1 秒，15 帧/秒）走一段黄昏，`lights(x)` 给出进度 x 时的（背景, 竿）亮度。
+    fn run_dusk(lights: impl Fn(f32) -> (f32, f32)) {
+        let mut m = model();
+        let total = 15 * 9 * 20;
+        for i in 0..total {
+            let st = if i % 135 < 120 { RodState::Out } else { RodState::In };
+            let (bg, rod) = lights(i as f32 / total as f32);
+            let c = m.classify_and_adapt(&synth_lit(st, 12, 12, bg, rod, 2000 + i));
+            assert_eq!(c.state, st, "frame {i} bg={bg:.2} rod={rod:.2} {c:?}");
+        }
+    }
+
+    #[test]
+    fn dusk_background_darkens_rod_does_not() {
+        // 水下/火把旁：水暗到 25%，手里的竿亮度不变。
+        run_dusk(|x| (1.0 - 0.75 * x, 1.0));
+    }
+
+    #[test]
+    fn dusk_everything_darkens() {
+        // 露天只靠天光：背景和竿一起暗到 30%。
+        run_dusk(|x| (1.0 - 0.7 * x, 1.0 - 0.7 * x));
+    }
+
+    #[test]
+    fn sudden_dim_is_not_in() {
+        // 暂停菜单：整屏一下子变暗。不能当成"收回"去甩竿。
+        let mut m = model();
+        for i in 0..30 {
+            m.classify_and_adapt(&synth(RodState::In, 12, 12, 1.0, 300 + i));
+        }
+        let c = m.classify(&synth(RodState::In, 12, 12, 0.5, 9));
+        assert_eq!(c.state, RodState::Unknown, "{c:?}");
     }
 
     #[test]
