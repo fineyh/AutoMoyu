@@ -39,7 +39,7 @@
     "copyright": "© 2026 fineyh · MIT License",
     "license": "MIT",
     "shortDescription": "Minecraft 基岩版自动钓鱼",
-    "longDescription": "一次选择，一次校准，然后去摸鱼。",
+    "longDescription": "Minecraft 基岩版自动钓鱼工具：竿收回来就再甩，没有钓鱼机也能全自动钓鱼。",
     "category": "Utility",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
     "windows": {

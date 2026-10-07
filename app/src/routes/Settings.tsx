@@ -449,16 +449,17 @@ export function Settings() {
         </button>
         <button
           className="row clickable"
-          onClick={() =>
-            void openUrl(
-              `${REPO}/issues/new?title=${encodeURIComponent(t("[反馈] ", "[Bug] "))}&body=${encodeURIComponent(
-                t(
-                  `版本：${info?.version}\n模式：${s.mode}\n窗口：${status?.window ? `${status.window.w}x${status.window.h}` : "未找到"}\n\n遇到的问题：\n\n（可以在 设置 → 高级 → 导出诊断包，把 zip 拖进来）`,
-                  `Version: ${info?.version}\nMode: ${s.mode}\nWindow: ${status?.window ? `${status.window.w}x${status.window.h}` : "not found"}\n\nWhat happened:\n\n(Settings → Advanced → Export diagnostics, then drag the zip in here)`,
-                ),
-              )}`,
-            )
-          }
+          onClick={() => {
+            // 字段 id 对应 .github/ISSUE_TEMPLATE/bug_report.yml
+            const q = new URLSearchParams({
+              template: "bug_report.yml",
+              title: t("[反馈] ", "[Bug] "),
+              version: info?.version ?? "",
+              mode: s.mode === "full" ? t("全自动", "Full auto") : t("自动甩竿", "Auto-cast"),
+              window: status?.window ? `${status.window.w}x${status.window.h}` : t("未找到", "not found"),
+            });
+            void openUrl(`${REPO}/issues/new?${q}`);
+          }}
         >
           <span className="lbl">
             {t("反馈问题", "Report a problem")}

@@ -7,6 +7,18 @@ import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import { download } from "../lib/updater";
 
+/** 发布说明是 CHANGELOG 的一节：中文在前，"**English**" 之后是英文，"---" 之后是安装说明。只留当前语言的正文。 */
+function pickNotes(notes: string): string {
+  const [body] = notes.split(/^---\s*$/m);
+  const [zh, en] = body.split(/^\*\*English\*\*\s*$/m);
+  return t(zh, en ?? zh)
+    .split("\n")
+    .filter((l) => !l.startsWith("#"))
+    .join("\n")
+    .replace(/\*\*/g, "")
+    .trim();
+}
+
 export function UpdateBanner() {
   const update = useStore((s) => s.update);
   const session = useStore((s) => s.status?.session);
@@ -29,7 +41,7 @@ export function UpdateBanner() {
               ? t(`新版本 ${info.version} 已下载`, `Version ${info.version} downloaded`)
               : t(`发现新版本 ${info.version}`, `Version ${info.version} available`)}
           </b>
-          {info.notes && <span className="notes">{info.notes}</span>}
+          {info.notes && <span className="notes">{pickNotes(info.notes)}</span>}
         </div>
       </div>
       {update.state === "downloading" && (

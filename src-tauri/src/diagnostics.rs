@@ -33,9 +33,13 @@ pub fn export(out: &Path, status_json: &str) -> Result<()> {
     }
     zip.start_file("status.json", opts)?;
     zip.write_all(status_json.as_bytes())?;
+    // 诊断包会被贴到公开 Issue 里：只保留像 Minecraft 的窗口标题，其他窗口（浏览器标签、聊天）只留进程名和尺寸
     let windows: Vec<String> = moyu_win::window::list_windows()
         .iter()
-        .map(|w| format!("  {} · {} · {}x{}{}", w.process, w.title, w.w, w.h, if w.minimized { " (最小化)" } else { "" }))
+        .map(|w| {
+            let title = if w.is_minecraft() || w.title.to_lowercase().contains("minecraft") { w.title.as_str() } else { "(标题已隐藏)" };
+            format!("  {} · {} · {}x{}{}", w.process, title, w.w, w.h, if w.minimized { " (最小化)" } else { "" })
+        })
         .collect();
     let sys = format!(
         "AutoMoyu {}\nOS: {} {}\n时间: {}\n可见窗口:\n{}\n",

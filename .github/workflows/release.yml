@@ -1,8 +1,9 @@
 # 推 v* tag 触发：构建 NSIS 安装包 + 更新包签名 + latest.json，发到 GitHub Releases。
+# 发布说明取自 CHANGELOG.md 里对应版本的那一节，没有就直接失败。
 #
 # 需要的仓库 Secrets：
 #   TAURI_SIGNING_PRIVATE_KEY           ~/.tauri/automoyu.key 的内容（务必另外离线备份！）
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  生成时的密码（没设就留空字符串）
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  生成时的密码（没设密码就不用配）
 #
 # 通道：
 #   稳定版  → GitHub "latest" release（带 - 的版本号自动标为 prerelease，不会成为 latest）
@@ -28,6 +29,27 @@ jobs:
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: 从 CHANGELOG 取发布说明
+        id: notes
+        shell: bash
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          body=$(awk -v v="$ver" '
+            /^## \[/ { if (p) exit; if (index($0, "## [" v "]") == 1) { p = 1; next } }
+            /^\[[^]]+\]: / { if (p) exit }
+            p' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md 里没有 [$ver] 这一节"
+            exit 1
+          fi
+          {
+            echo 'body<<__NOTES__'
+            printf '%s\n\n---\n\n' "$body"
+            echo "安装：下载 \`AutoMoyu_${ver}_x64-setup.exe\` 运行，不需要管理员权限。SmartScreen 拦截时点「更多信息」→「仍要运行」。"
+            echo
+            echo "Install: download \`AutoMoyu_${ver}_x64-setup.exe\` and run it, no admin rights needed. If SmartScreen blocks it, click More info → Run anyway."
+            echo '__NOTES__'
+          } >> "$GITHUB_OUTPUT"
       - run: pnpm install --frozen-lockfile
       - run: cargo test --workspace
       - uses: tauri-apps/tauri-action@v0
@@ -38,9 +60,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: AutoMoyu ${{ github.ref_name }}
-          releaseBody: |
-            见下方更新说明。首次安装：下载 `AutoMoyu_*_x64-setup.exe`，无需管理员权限。
-            Windows 可能提示"未知发布者"，点「更多信息 → 仍要运行」。
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true

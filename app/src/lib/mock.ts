@@ -1,4 +1,4 @@
-// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|takeover|calib|done|nowin 切换场景，&lang=en|zh 指定语言。
+// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|takeover|calib|done|nowin|update 切换场景，&lang=en|zh 指定语言。
 // 只用于看界面，打包进 Tauri 后不会走到这里。
 
 import type { FeedItem, Settings, StatsView, Status } from "./types";
@@ -37,7 +37,7 @@ const status = (): Status => {
     lang: settings.ui.language !== "auto" ? settings.ui.language : navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en",
   };
   if (scene === "nowin") return { ...base, window: null, calibration: null };
-  if (scene === "idle") return base;
+  if (scene === "idle" || scene === "update") return base;
   if (scene === "calib" || scene === "done") {
     return {
       ...base,
@@ -113,7 +113,15 @@ export async function mockInvoke(cmd: string, args?: Record<string, unknown>): P
     case "list_game_windows":
       return [{ hwnd: 1, pid: 42, process: "Minecraft.Windows.exe", title: "Minecraft", w: 1920, h: 1080, minimized: false }];
     case "app_info": return { version: "1.0.0-beta.1", dataDir: "C:\\Users\\me\\AppData\\Roaming\\AutoMoyu" };
-    case "update_check": return null;
+    case "update_check":
+      return scene === "update"
+        ? {
+            version: "1.0.0-beta.2", current: "1.0.0-beta.1", date: null,
+            notes:
+              "\n- 修好了一个问题\n- 统计页加了一张图\n\n**English**\n\n- Fixed a problem\n- Added a chart to the stats page\n\n---\n\n安装：…\n\nInstall: …",
+          }
+        : null;
+    case "update_download": return new Promise((r) => setTimeout(r, 1500));
     default: return null;
   }
 }

@@ -1,0 +1,56 @@
+name: 问题反馈 / Bug report
+description: 钓不上、认不出鱼竿、崩溃等问题 / Something isn't working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        在 AutoMoyu 里点 设置 → 关于 → 反馈问题，下面的版本和窗口信息会自动填好。
+        Use Settings → About → Report a problem in AutoMoyu to fill in the version and window size automatically.
+
+  - type: input
+    id: version
+    attributes:
+      label: AutoMoyu 版本 / Version
+      placeholder: 1.0.0-beta.1
+    validations:
+      required: true
+
+  - type: input
+    id: mode
+    attributes:
+      label: 模式 / Mode
+      description: 自动甩竿 or 全自动 / auto-cast or full auto
+    validations:
+      required: true
+
+  - type: input
+    id: window
+    attributes:
+      label: 游戏窗口尺寸 / Game window size
+      placeholder: 1920x1080
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么 / What happened
+      description: 你做了什么，期望怎样，实际怎样 / What you did, what you expected, what happened instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境 / Environment
+      description: 单人还是服务器、白天还是夜晚、有没有光影或材质包 / Single player or server, day or night, shaders or resource packs
+      placeholder: |
+        单人世界，夜晚，原版材质
+        Windows 11 23H2
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断包 / Diagnostics
+      description: |
+        设置 → 高级 → 导出诊断包，把 zip 拖到这里。里面是日志、设置、校准截图和系统版本，发之前可以先打开看看。
+        Settings → Advanced → Export diagnostics, then drag the zip here. It holds logs, settings, calibration screenshots and the Windows version; feel free to look inside first.
