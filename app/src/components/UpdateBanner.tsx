@@ -2,7 +2,7 @@
 
 import { ArrowDownCircle } from "lucide-react";
 
-import { api } from "../lib/api";
+import { api, openUrl } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import { download } from "../lib/updater";
@@ -42,6 +42,13 @@ export function UpdateBanner() {
               : t(`发现新版本 ${info.version}`, `Version ${info.version} available`)}
           </b>
           {info.notes && <span className="notes">{pickNotes(info.notes)}</span>}
+          <button
+            className="link"
+            style={{ fontSize: 12, alignSelf: "flex-start", marginTop: 4 }}
+            onClick={() => void openUrl(`https://github.com/fineyh/AutoMoyu/releases/tag/v${info.version}`)}
+          >
+            {t("完整更新说明", "Full release notes")}
+          </button>
         </div>
       </div>
       {update.state === "downloading" && (

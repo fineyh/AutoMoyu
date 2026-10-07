@@ -5,6 +5,14 @@
 
 ## [未发布]
 
+## [1.0.0-beta.2] - 2026-10-07
+
+- 更新提示里加了「完整更新说明」链接，说明太长被截断时可以点开看全文
+
+**English**
+
+- The update notice now has a "Full release notes" link for when the notes are too long to fit
+
 ## [1.0.0-beta.1] - 2026-10-07
 
 第一个公开版本。用 Tauri + Rust 重写，和 0.1 不兼容，0.1 的设置不会迁移。
@@ -41,6 +49,7 @@ Python + tkinter 原型，代码在 `legacy/python/`，没有发布安装包。
 
 Python + tkinter prototype, kept in `legacy/python/`. No installer was published.
 
-[未发布]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.1...HEAD
+[未发布]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.2...HEAD
+[1.0.0-beta.2]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.1...v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/fineyh/AutoMoyu/compare/v0.1.0...v1.0.0-beta.1
 [0.1.0]: https://github.com/fineyh/AutoMoyu/releases/tag/v0.1.0
