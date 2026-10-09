@@ -5,6 +5,14 @@
 
 ## [未发布]
 
+## [1.0.0] - 2026-10-09
+
+正式版。内容和 1.0.0-beta.4 相同，没有新改动。稳定版通道从这个版本开始收到更新。
+
+**English**
+
+First stable release, identical to 1.0.0-beta.4. The stable update channel starts here.
+
 ## [1.0.0-beta.4] - 2026-10-09
 
 - 更新提示里的「完整更新说明」改为直接在提示里展开，不再跳转 GitHub；收起时按整行截断
@@ -69,7 +77,8 @@ Python + tkinter 原型，代码在 `legacy/python/`，没有发布安装包。
 
 Python + tkinter prototype, kept in `legacy/python/`. No installer was published.
 
-[未发布]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.4...HEAD
+[未发布]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.4...v1.0.0
 [1.0.0-beta.4]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.3...v1.0.0-beta.4
 [1.0.0-beta.3]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.2...v1.0.0-beta.3
 [1.0.0-beta.2]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.1...v1.0.0-beta.2
