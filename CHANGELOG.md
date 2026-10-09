@@ -63,67 +63,91 @@ The notes below consolidate 1.0.0-beta.1 through 1.0.0-beta.4. There are no func
 
 ## [1.0.0-beta.4] - 2026-10-09
 
-- 更新提示里的「完整更新说明」改为直接在提示里展开，不再跳转 GitHub；收起时按整行截断
+**变更**
+
+- 更新提示中的「完整更新说明」改为在提示内直接展开，不再跳转至 GitHub；收起状态下按整行截断
 
 **English**
 
-- "Full release notes" in the update notice now expands in place instead of opening GitHub; collapsed notes are cut at whole lines
+**Changed**
+
+- "Full release notes" now expands within the update notice instead of opening GitHub; collapsed notes are truncated at line boundaries
 
 ## [1.0.0-beta.3] - 2026-10-09
 
-- 模式改叫「钓鱼机模式」和「野钓模式」，按在哪钓来选；去掉了「测试版」标记
-- 系统开了空间音效（Dolby Atmos 等）时，首页会提示并给出「声音设置」按钮；这时改录整机声音，咬钩照样能听到
-- 猫叫等动物叫声不再被当成咬钩
+**变更**
+
+- 两种模式更名为「钓鱼机模式」与「野钓模式」，按使用场景命名；移除野钓模式的「测试版」标识
+
+**新增**
+
+- 检测到 Windows 空间音效（Dolby Atmos 等）时，在首页给出提示及「声音设置」入口，并自动切换为采集系统整体音频，以保证咬钩检测正常工作
+
+**修复**
+
+- 猫叫等动物叫声被误判为咬钩的问题
 
 **English**
 
-- The modes are now called "Fish farm" and "Open water", named after where you fish; the "beta" tag is gone
-- When Windows spatial sound (Dolby Atmos etc.) is on, the home page says so and offers a "Sound settings" button; AutoMoyu then records system-wide audio so bites are still heard
-- Cats meowing and other animal calls no longer count as bites
+**Changed**
+
+- The two modes have been renamed "Fish farm" and "Open water" to reflect where they are used; the "beta" label has been removed from Open water mode
+
+**Added**
+
+- When Windows spatial sound (Dolby Atmos etc.) is enabled, the home page displays a notice with a shortcut to Sound settings, and audio capture falls back to system-wide output so that bite detection continues to work
+
+**Fixed**
+
+- Cat meows and other animal calls were incorrectly detected as bites
 
 ## [1.0.0-beta.2] - 2026-10-07
 
-- 更新提示里加了「完整更新说明」链接，说明太长被截断时可以点开看全文
+**新增**
+
+- 更新提示中新增「完整更新说明」链接，用于查看因篇幅过长而被截断的更新说明全文
 
 **English**
 
-- The update notice now has a "Full release notes" link for when the notes are too long to fit
+**Added**
+
+- A "Full release notes" link in the update notice for viewing release notes that are too long to display in full
 
 ## [1.0.0-beta.1] - 2026-10-07
 
-第一个公开版本。用 Tauri + Rust 重写，和 0.1 不兼容，0.1 的设置不会迁移。
+首个公开测试版本。本版本基于 Tauri 与 Rust 重新实现，不兼容 0.1.x 的配置。
 
-- 只需选模式：自动甩竿（有钓鱼机）或全自动（测试版）。不再需要框选区域、调灵敏度
-- 首次使用自动校准，约 10 秒，按窗口尺寸保存
-- 改为识别手持鱼竿的状态，白天、夜晚、雨天和昼夜交替都能认出
-- 全自动模式改为听咬钩水花声，只录 Minecraft 自己的声音
-- 能分辨高延迟服务器上的甩竿回跳，不会重复甩竿
-- 你在游戏里操作时自动暂停，停手后继续
-- 统计页、托盘、游戏内浮层、可改热键、自动停止条件、系统通知
-- 自动更新，分稳定版和测试版两个通道
-- 中文 / 英文界面
+- 提供两种模式：自动甩竿（配合钓鱼机使用）与全自动（测试功能），无需手动框选区域或调整灵敏度
+- 首次使用时自动校准（约 10 秒），校准结果按窗口分辨率保存
+- 基于手持鱼竿的状态进行识别，适用于白天、夜晚、雨天及昼夜过渡时段
+- 全自动模式通过咬钩水花声判断咬钩，仅采集 Minecraft 进程的音频
+- 支持高延迟服务器：可区分服务器回弹造成的抛竿回跳，避免重复抛竿
+- 检测到玩家在游戏内操作鼠标或键盘时自动暂停，操作结束后自动恢复
+- 统计页、系统托盘、游戏内浮层、自定义热键、自动停止条件及系统通知
+- 自动更新，提供稳定版与测试版两个通道
+- 支持简体中文与英文界面
 
 **English**
 
-First public release. Rewritten with Tauri and Rust; settings from 0.1 are not carried over.
+First public pre-release. AutoMoyu has been reimplemented with Tauri and Rust; configuration from 0.1.x is not compatible.
 
-- Just pick a mode: auto-cast (with a fish farm) or full auto (beta). No more region picking or sensitivity tuning
-- Calibrates itself on first use in about 10 seconds, saved per window size
-- Detects the state of the rod in your hand; works by day, at night, in rain and through dusk and dawn
-- Full auto now listens for the bite splash, using only Minecraft's own audio
-- Recognises the cast jumping back on laggy servers and doesn't cast twice
-- Pauses while you play and carries on when you stop
-- Stats page, tray icon, in-game overlay, rebindable hotkeys, auto-stop conditions, system notifications
+- Two modes: auto-cast (for use with a fish farm) and full auto (experimental). No manual region selection or sensitivity tuning is required
+- Automatic calibration on first use (about 10 seconds), stored per window resolution
+- Detection is based on the state of the held fishing rod and works in daylight, at night, in rain and during dusk and dawn transitions
+- Full auto mode detects bites from the splash sound, capturing audio from the Minecraft process only
+- High-latency servers: cast bounce-backs caused by server correction are distinguished from real reel-ins, preventing duplicate casts
+- Fishing pauses automatically while the player uses the mouse or keyboard in game and resumes once input stops
+- Statistics page, system tray, in-game overlay, configurable hotkeys, auto-stop conditions and system notifications
 - Automatic updates with stable and beta channels
-- English and Chinese interface
+- Simplified Chinese and English interface
 
 ## [0.1.0] - 2026-07-11
 
-Python + tkinter 原型，代码在 `legacy/python/`，没有发布安装包。
+基于 Python 与 tkinter 的原型版本，源码位于 `legacy/python/`，未发布安装包。
 
 **English**
 
-Python + tkinter prototype, kept in `legacy/python/`. No installer was published.
+Prototype built with Python and tkinter. The source is kept in `legacy/python/`; no installer was published.
 
 [未发布]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/fineyh/AutoMoyu/compare/v1.0.0-beta.4...v1.0.0

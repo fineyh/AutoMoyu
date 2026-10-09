@@ -6,7 +6,7 @@
 
 [中文](README.md) | English
 
-An auto-fishing tool for Minecraft Bedrock Edition on Windows. It watches the fishing rod in your hand and casts again whenever the rod comes back. No fish farm? It can fish fully on its own too.
+An auto-fishing tool for Minecraft Bedrock Edition on Windows. AutoMoyu monitors the state of the held fishing rod and recasts automatically once the rod has been reeled in. Without a fish farm, it can also detect bites by sound and fish fully automatically.
 
 <p>
   <img src="assets/screenshots/home-en.jpg" width="300" alt="Home screen while fishing">
@@ -15,87 +15,87 @@ An auto-fishing tool for Minecraft Bedrock Edition on Windows. It watches the fi
 
 ## Features
 
-- **Two modes**, both fully automatic; pick by where you fish
-  - Fish farm: for use with a semi-automatic fish farm. The farm reels in, AutoMoyu casts again.
-  - Open water: no farm needed. Face any water; AutoMoyu reels in when it hears a bite, then casts again.
-- **No region picking, no thresholds to tune.** The first time you use it, AutoMoyu calibrates itself in about 10 seconds. Each window size only needs to be calibrated once.
-- Recognises the rod by day, at night and in rain, and adjusts as the light changes at dusk and dawn.
-- On laggy servers the cast often jumps back before going out again. AutoMoyu tells this apart from a real reel-in and doesn't cast twice.
-- Steps aside when you move the mouse or press a key in game, and carries on 5 seconds after you stop.
-- Stops and tells you why when a cast fails, the rod can't be recognised, or the game closes.
-- Stats for fish per day and time to bite.
-- Tray icon, in-game overlay, rebindable hotkeys (F6 start/pause and F7 overlay by default).
-- Automatic updates. English and Chinese interface.
+- **Two modes**, both fully automatic, chosen by where you fish:
+  - Fish farm: for use with an in-game semi-automatic fish farm. The farm reels in and AutoMoyu recasts.
+  - Open water: no fish farm required. Works on any body of water; AutoMoyu reels in when a bite is detected, then recasts.
+- **No manual setup**: no region selection or threshold tuning. Calibration runs automatically on first use (about 10 seconds) and is needed only once per window size.
+- Works in daylight, at night and in rain, and adapts to changing brightness during dusk and dawn.
+- High-latency servers: cast bounce-backs caused by server correction are distinguished from real reel-ins, preventing duplicate casts.
+- Yields control while the player uses the mouse or keyboard in game, and resumes 5 seconds after input stops.
+- Stops automatically and reports the reason when a cast fails, the rod cannot be recognised, or the game exits.
+- Statistics for daily catches and average time to bite.
+- System tray, in-game overlay and configurable hotkeys (F6 to start/pause and F7 to toggle the overlay by default).
+- Automatic updates; Simplified Chinese and English interface.
 
 ## Requirements
 
 - Windows 10 version 2004 or later, 64-bit
-- Minecraft Bedrock Edition from the Microsoft Store or the Xbox app
-- The game in **windowed or borderless** mode (exclusive fullscreen can't be captured)
+- Minecraft Bedrock Edition (Microsoft Store or Xbox app)
+- The game must run in **windowed or borderless** mode; exclusive fullscreen cannot be captured
 
-## Install
+## Installation
 
-Download `AutoMoyu_<version>_x64-setup.exe` from [Releases](https://github.com/fineyh/AutoMoyu/releases) and run it. It installs for the current user and doesn't need admin rights. If WebView2 is missing, the installer downloads it (Windows 11 already has it).
+Download `AutoMoyu_<version>_x64-setup.exe` from [Releases](https://github.com/fineyh/AutoMoyu/releases) and run it. AutoMoyu installs for the current user and does not require administrator rights. If WebView2 is not present, the installer downloads it automatically (it is included with Windows 11).
 
-The installer isn't code-signed yet, so SmartScreen may block it. Click **More info**, then **Run anyway**.
+The installer is not yet code-signed, so Windows SmartScreen may block it. Click **More info**, then **Run anyway**.
 
-AutoMoyu checks for updates by itself. It won't interrupt you while fishing; once you stop, an update notice shows up on the Home screen.
+AutoMoyu checks for updates automatically. No notice is shown while fishing; once fishing stops, an update notice appears on the Home screen.
 
 ## Usage
 
-1. Start the game and hold a fishing rod. In fish farm mode, stand where the farm expects you. In open water mode, aim at the water.
-2. AutoMoyu opens calibration on first launch. Switch to the game and press **F6**. It casts twice by itself; don't move the mouse until it's done.
-3. Press **F6** to start fishing and again to pause. **F7** shows or hides the in-game overlay.
+1. Start the game and hold a fishing rod. In Fish farm mode, stand at the farm's fishing position. In Open water mode, aim the crosshair at the water.
+2. Calibration opens on first launch. Switch to the game and press **F6**. AutoMoyu casts twice on its own; do not move the mouse until calibration completes.
+3. Press **F6** to start fishing and press it again to pause. **F7** shows or hides the in-game overlay.
 
-Keep the game window in front while it runs. Switching to another window pauses fishing, and switching back resumes it. If the window size changes, you'll be asked to calibrate again.
+The game window must stay in the foreground while AutoMoyu is running. Switching to another window pauses fishing, and switching back resumes it. If the window size changes, you will be prompted to recalibrate.
 
-For steadier detection:
+Recommended settings for reliable detection:
 
-- Turn off View Bobbing in the game settings and don't use shaders.
-- In open water mode, bites are detected by sound, so keep the game's sound effects volume above 0. Music can be off, and your own music or voice chat won't get in the way.
-- Turn off Windows spatial sound (Dolby Atmos, Windows Sonic and so on). With it on, AutoMoyu has to record all system audio instead, and sounds from other apps may trigger a false reel.
+- Turn off View Bobbing in the game settings and do not use shaders.
+- Open water mode detects bites by sound, so keep the game's sound effects volume above 0. Game music can be turned off; music played on the computer and voice chat do not interfere.
+- Turn off Windows spatial sound (Dolby Atmos, Windows Sonic, etc.). While it is on, AutoMoyu has to capture system-wide audio instead, and sounds from other applications may cause false reel-ins.
 
 ## FAQ
 
 **Minecraft isn't found**
 
-Make sure the game is windowed or borderless. If it still isn't found, pick it under Settings → Advanced → Game window.
+Make sure the game is in windowed or borderless mode. If it is still not detected, select it manually under Settings → Advanced → Game window.
 
 **"The cast didn't go out"**
 
-Usually you aren't holding a fishing rod, or there's no water in front of you. Fix that and press F6.
+This usually means the item in hand is not a fishing rod or there is no water in front of the player. Resolve the issue and press F6 to continue.
 
 **"Can't recognise the rod"**
 
-Usually the inventory or a menu is open. Close it and AutoMoyu carries on. If it keeps happening, recalibrate under Settings → Fishing.
+This usually means the inventory or a menu is open. Close it and fishing resumes automatically. If it happens frequently, recalibrate under Settings → Fishing.
 
 **"Spatial sound is on"**
 
-In Windows Settings → System → Sound, open your output device's properties and set Spatial sound to Off. The "Sound settings" button in the notice opens that page. The notice goes away once it's off.
+In Windows Settings → System → Sound, open the output device's properties and set Spatial sound to Off. The "Sound settings" button in the notice opens that page directly. The notice disappears once spatial sound is off.
 
 **"High server lag makes the cast jump back; adjusted automatically"**
 
-Nothing to do. It's just letting you know, and it keeps waiting for a bite as usual.
+No action is needed. The notice is informational only, and AutoMoyu continues waiting for bites as usual.
 
-**Can I get banned for this?**
+**Is there a risk of being banned?**
 
-AutoMoyu only sends right-clicks to the game window. It doesn't read or write game memory, change game files or inject anything. Many servers do forbid AFK fishing, though. **Check your server's rules first**; you use AutoMoyu at your own risk.
+AutoMoyu only sends right-clicks to the game window. It does not read or write game memory, modify game files or inject any code. However, many servers prohibit AFK fishing. **Check your server's rules before use**; you use AutoMoyu at your own risk.
 
 **How do I report a problem?**
 
-Go to Settings → Advanced → Export diagnostics, then [open an issue](https://github.com/fineyh/AutoMoyu/issues/new/choose) and drag the zip in. Settings → About → Report a problem fills in your version and window size for you.
+Export a diagnostics package under Settings → Advanced, then [open an issue](https://github.com/fineyh/AutoMoyu/issues/new/choose) and attach the zip file. Opening an issue from Settings → About → Report a problem fills in the version and window information automatically.
 
 ## How it works
 
-- **Rod state**: during calibration AutoMoyu casts twice and records what the screen looks like with the rod reeled in and cast out. It then picks the area near the held rod or the hotbar where the two look most different. While running it captures that area 15 times a second and checks which of the two it's closer to.
-- **Bite detection** (open water mode): it records only Minecraft's own audio through WASAPI process loopback. A bite splash is a sustained burst of broadband noise; AutoMoyu looks at its loudness and duration, so the short sounds of a fish swimming up don't count as a bite, and tonal sounds such as cats meowing are ignored too.
-- **Clicking**: right-clicks are simulated with Windows `SendInput`, and by default only when the game is the foreground window.
+- **Rod state detection**: during calibration AutoMoyu casts twice and records the game screen with the rod reeled in and cast out. It then selects the area near the held rod or the hotbar where the two states differ most. While running, it captures that area 15 times per second and determines which state the current frame is closer to.
+- **Bite detection** (Open water mode): audio is captured from the Minecraft process only, using WASAPI process loopback. A bite splash appears as a sustained burst of broadband noise; AutoMoyu evaluates its loudness and duration, so the brief sounds of an approaching fish are not mistaken for a bite. Tonal sounds such as cat meows are also excluded.
+- **Input simulation**: right-clicks are simulated through Windows `SendInput`, and by default only while the game is the foreground window.
 
-Everything runs locally. The only network access is the update check.
+All processing takes place locally. The only network access is the update check.
 
 ## Contributing
 
-Build instructions, project layout and the offline evaluation tools are in [CONTRIBUTING.md](CONTRIBUTING.md) (Chinese; the commands work as written). Release history is in [CHANGELOG.md](CHANGELOG.md).
+Build instructions, project layout and the offline evaluation tools are documented in [CONTRIBUTING.md](CONTRIBUTING.md) (in Chinese; the commands work as written). Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
