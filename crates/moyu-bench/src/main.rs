@@ -10,6 +10,7 @@
 mod analyze;
 mod dusk;
 mod fixture;
+mod onsets;
 mod probe;
 mod record;
 
@@ -51,6 +52,19 @@ enum Cmd {
         /// 最长录制分钟数
         #[arg(long, default_value_t = 15)]
         minutes: u32,
+        /// 另录一轨整机环回（audio-system.wav），和只录游戏进程的 audio.wav 对照
+        #[arg(long)]
+        system_audio: bool,
+    },
+    /// 列出声音检测器的每次触发（带音调性），看误触是什么声音。
+    Onsets {
+        dir: PathBuf,
+        /// 用哪条音轨（audio.wav / audio-system.wav）
+        #[arg(long, default_value = "audio.wav")]
+        wav: String,
+        /// 音调性门槛；不给 = 不滤
+        #[arg(long)]
+        tonal_max: Option<f32>,
     },
     /// 离线评估一段录像：竿状态区分度/准确率、声音咬钩召回率与误报。
     Analyze {
@@ -82,7 +96,8 @@ fn main() -> anyhow::Result<()> {
     moyu_win::dpi::set_per_monitor_v2();
     match Cli::parse().cmd {
         Cmd::Probe { out } => probe::run(&out),
-        Cmd::Record { dir, scenario, fps, minutes } => record::run(&dir, scenario, fps, minutes),
+        Cmd::Record { dir, scenario, fps, minutes, system_audio } => record::run(&dir, scenario, fps, minutes, system_audio),
+        Cmd::Onsets { dir, wav, tonal_max } => onsets::run(&dir, &wav, tonal_max),
         Cmd::Analyze { dir, json } => analyze::run(&dir, json.as_deref()),
         Cmd::Dusk { day, night, seconds, darken, rod_darken, seeds } => dusk::run(&day, &night, seconds, &darken, rod_darken, seeds),
     }

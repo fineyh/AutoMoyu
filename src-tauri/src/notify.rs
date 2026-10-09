@@ -59,3 +59,15 @@ pub fn pause(app: &AppHandle, reason: PauseReason) {
     };
     send(app, t, b);
 }
+
+/// 系统开启了空间音效：进程环回录不到游戏的 3D 音效，本次改录整机声音。只在开始钓鱼时发一次。
+pub fn spatial_sound(app: &AppHandle) {
+    send(
+        app,
+        t("系统已开启空间音效", "Spatial sound is on"),
+        t(
+            "空间音效（如 Dolby Atmos）会影响咬钩识别。本次将录制全部系统声音，其他软件的声音可能导致误收竿。建议在 Windows 声音设置中将“空间音效”设为“关闭”。",
+            "Spatial sound (such as Dolby Atmos) interferes with bite detection. This session listens to all system audio, so sounds from other apps may cause false reels. We recommend setting Spatial sound to Off in Windows sound settings.",
+        ),
+    );
+}

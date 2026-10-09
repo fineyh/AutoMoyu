@@ -11,3 +11,4 @@ src-tauri/gen/
 fixtures/*/
 !fixtures/README.md
 *.key
+.claude/

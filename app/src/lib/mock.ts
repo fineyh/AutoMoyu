@@ -1,4 +1,4 @@
-// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|takeover|calib|done|nowin|update 切换场景，&lang=en|zh 指定语言。
+// 浏览器预览用的假后端（pnpm web）。?mock=idle|running|paused|takeover|calib|done|nowin|update|spatial 切换场景，&lang=en|zh 指定语言。
 // 只用于看界面，打包进 Tauri 后不会走到这里。
 
 import type { FeedItem, Settings, StatsView, Status } from "./types";
@@ -11,7 +11,7 @@ const emit = (e: string, p: unknown) => listeners.get(e)?.forEach((cb) => cb(p))
 
 const settings: Settings = {
   version: 1,
-  mode: "rodOnly",
+  mode: scene === "spatial" ? "full" : "rodOnly",
   biteSource: "audio",
   hotkeys: { toggle: "F6", overlay: "F7" },
   autoStop: { kind: "none", value: 0 },
@@ -33,11 +33,11 @@ const status = (): Status => {
   const base: Status = {
     phase: "idle", pauseReason: null, lastStop: null, mode: settings.mode, session: null,
     window: { title: "Minecraft", process: "Minecraft.Windows.exe", w: 1920, h: 1080, foreground: true, pinned: false },
-    calibration: cal, calib: null, audio: null, signal: null, overlayOn: true,
+    calibration: cal, calib: null, audio: null, signal: null, overlayOn: true, spatialSound: scene === "spatial",
     lang: settings.ui.language !== "auto" ? settings.ui.language : navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en",
   };
   if (scene === "nowin") return { ...base, window: null, calibration: null };
-  if (scene === "idle" || scene === "update") return base;
+  if (scene === "idle" || scene === "update" || scene === "spatial") return base;
   if (scene === "calib" || scene === "done") {
     return {
       ...base,

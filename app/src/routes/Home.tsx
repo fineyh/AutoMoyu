@@ -82,7 +82,10 @@ export function Home() {
             <span>
               Minecraft · {win.w}×{win.h} · {cal ? t("已校准", "calibrated") : t("未校准", "not calibrated")}
               {status?.mode === "full" && running
-                ? t(` · 咬钩识别：${status.audio ? "声音" : "仅超时"}`, ` · bites: ${status.audio ? "by sound" : "timeout only"}`)
+                ? t(
+                    ` · 咬钩识别：${status.audio === "system" ? "声音（整机）" : status.audio ? "声音" : "仅超时"}`,
+                    ` · bites: ${status.audio === "system" ? "by sound (system-wide)" : status.audio ? "by sound" : "timeout only"}`,
+                  )
                 : ""}
             </span>
             {cal ? (
@@ -106,6 +109,19 @@ export function Home() {
         )}
       </div>
 
+      {status?.spatialSound && status.mode === "full" && (
+        <Note
+          title={t("系统已开启空间音效", "Spatial sound is on")}
+          hint={t(
+            "会影响咬钩识别，其他软件的声音也可能导致误收竿，建议关闭。",
+            "It interferes with bite detection, and other apps' sounds may cause false reels. We recommend turning it off.",
+          )}
+        >
+          <button className="ghost" onClick={() => void api.openSoundSettings()}>
+            {t("声音设置", "Sound settings")}
+          </button>
+        </Note>
+      )}
       {reason && (
         <Note title={reason.title} hint={reason.hint}>
           {reason.action && (

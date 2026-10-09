@@ -120,6 +120,7 @@ pub fn run() {
             commands::calibration_cancel,
             commands::calibration_reset,
             commands::focus_game,
+            commands::open_sound_settings,
             commands::list_game_windows,
             commands::pick_window,
             commands::get_stats,

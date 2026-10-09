@@ -111,6 +111,38 @@ impl AudioCapture {
     }
 }
 
+/// 默认输出设备是否开着空间音效（Dolby Atmos、Windows Sonic、DTS 等）。查不到返回 `None`。
+///
+/// 开着时游戏的 3D 音效（甩竿、咬钩水花）走空间音频对象，进程级环回录不到，只剩环境音。
+/// 判据：空间音效关闭时 `ISpatialAudioClient::GetMaxDynamicObjectCount` 为 0。
+pub fn spatial_sound_active() -> Option<bool> {
+    // 单开线程：调用方可能在 STA（界面线程）里
+    std::thread::spawn(|| unsafe {
+        use windows::Win32::Media::Audio::{eConsole, eRender, IMMDeviceEnumerator, ISpatialAudioClient, MMDeviceEnumerator};
+        use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED};
+        let inited = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        let r = (|| -> windows::core::Result<u32> {
+            let en: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+            let dev = en.GetDefaultAudioEndpoint(eRender, eConsole)?;
+            let sac: ISpatialAudioClient = dev.Activate(CLSCTX_ALL, None)?;
+            sac.GetMaxDynamicObjectCount()
+        })();
+        if inited {
+            CoUninitialize();
+        }
+        match r {
+            Ok(n) => Some(n > 0),
+            Err(e) => {
+                tracing::debug!("查空间音效失败：{e}");
+                None
+            }
+        }
+    })
+    .join()
+    .ok()
+    .flatten()
+}
+
 impl Drop for AudioCapture {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);

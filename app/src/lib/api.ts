@@ -46,6 +46,7 @@ export const api = {
   calCancel: () => call<void>("calibration_cancel"),
   calReset: () => call<void>("calibration_reset"),
   focusGame: () => call<void>("focus_game"),
+  openSoundSettings: () => call<void>("open_sound_settings"),
   listWindows: () => call<GameWindow[]>("list_game_windows"),
   pickWindow: (pick: WindowMatch | null) => call<Settings>("pick_window", { pick }),
   stats: (days = 7) => call<StatsView>("get_stats", { days }),

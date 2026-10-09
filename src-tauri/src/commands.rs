@@ -112,6 +112,13 @@ pub fn focus_game(state: State<'_, AppState>) {
     svc(&state, Cmd::FocusGame);
 }
 
+/// 打开 Windows 声音设置（关空间音效用）。
+#[tauri::command]
+pub fn open_sound_settings(app: AppHandle) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_url("ms-settings:sound", None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn list_game_windows() -> Vec<GameWindow> {
     let mut v = moyu_win::window::list_windows();

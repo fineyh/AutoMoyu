@@ -4,6 +4,7 @@
 //! 所有 Windows 资源（截图 DC、防睡眠、声音采集）都只在这个线程里创建和销毁。
 
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -145,6 +146,8 @@ pub struct Status {
     pub signal: Option<SignalView>,
     pub overlay_on: bool,
     pub lang: crate::i18n::Lang,
+    /// 系统开启了空间音效（Dolby Atmos 等）：游戏的咬钩声录不到，只能改录整机声音。
+    pub spatial_sound: bool,
 }
 
 impl Status {
@@ -162,6 +165,7 @@ impl Status {
             signal: None,
             overlay_on: true,
             lang: crate::i18n::current(),
+            spatial_sound: false,
         }
     }
 }
@@ -303,6 +307,9 @@ struct Svc {
     signal: Option<SignalView>,
     last_emit: Instant,
     dirty: bool,
+    /// 后台每隔几秒查一次空间音效，用户在 Windows 里关掉后界面提示马上消失。
+    spatial: Arc<AtomicBool>,
+    spatial_notified: bool,
 }
 
 impl Svc {
@@ -325,6 +332,8 @@ impl Svc {
             signal: None,
             last_emit: Instant::now(),
             dirty: true,
+            spatial: watch_spatial_sound(),
+            spatial_notified: false,
         }
     }
 
@@ -459,8 +468,18 @@ impl Svc {
         let mode = self.settings.mode;
         let id = self.stats.lock().unwrap().begin(mode_str(mode)).unwrap_or(-1);
         let audio = if mode == Mode::Full && self.settings.bite_source == BiteSource::Audio {
+            // 空间音效下甩竿/水花走空间音频对象，进程环回几乎录不到；整机环回是渲染后的混音，录得到
+            let spatial = moyu_win::audio::spatial_sound_active() == Some(true);
+            self.spatial.store(spatial, Ordering::Relaxed);
+            if spatial {
+                tracing::warn!("系统开启了空间音效，改用整机环回");
+                // 开始时人在游戏里看不到界面，发一次系统通知；之后只留界面提示，不反复打扰
+                if !std::mem::replace(&mut self.spatial_notified, true) {
+                    notify::spatial_sound(&self.app);
+                }
+            }
             let (tx, rx) = mpsc::channel();
-            match AudioCapture::start(Some(w.pid), tx) {
+            match AudioCapture::start((!spatial).then_some(w.pid), tx) {
                 Ok(cap) => {
                     let det = BiteAudioDetector::new(cap.sample_rate, self.settings.advanced.bite_sensitivity);
                     Some(AudioRig { _cap: cap, rx, det, level: None })
@@ -911,6 +930,7 @@ impl Svc {
             signal: self.signal.clone(),
             overlay_on: self.overlay_on,
             lang: crate::i18n::current(),
+            spatial_sound: self.spatial.load(Ordering::Relaxed),
         }
     }
 
@@ -985,6 +1005,19 @@ pub fn mode_str(m: Mode) -> &'static str {
         Mode::RodOnly => "rodOnly",
         Mode::Full => "full",
     }
+}
+
+/// 后台线程每 3 秒查一次默认输出设备的空间音效。
+fn watch_spatial_sound() -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    let f = flag.clone();
+    let _ = std::thread::Builder::new().name("spatial-sound".into()).spawn(move || loop {
+        if let Some(on) = moyu_win::audio::spatial_sound_active() {
+            f.store(on, Ordering::Relaxed);
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    });
+    flag
 }
 
 fn cal_error_text(e: &CalError) -> &'static str {

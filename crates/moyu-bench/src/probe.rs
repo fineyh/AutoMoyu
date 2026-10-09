@@ -59,5 +59,6 @@ pub fn run(out: &Path) -> Result<()> {
         }
         Err(e) => println!("声音采集失败：{e}"),
     }
+    println!("空间音效：{:?}", moyu_win::audio::spatial_sound_active());
     Ok(())
 }

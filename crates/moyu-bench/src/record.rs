@@ -19,7 +19,7 @@ use moyu_win::{window, ScreenCapture};
 use crate::fixture::{save_png, FrameRec, InputRec, Meta, CENTER_AREA};
 use crate::Scenario;
 
-pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32) -> Result<()> {
+pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32, system_audio: bool) -> Result<()> {
     let Some(mut w) = window::find_minecraft() else { bail!("没找到 Minecraft 窗口，先打开游戏") };
     if w.w == 0 || w.h == 0 || w.minimized {
         bail!("游戏窗口最小化了");
@@ -69,7 +69,24 @@ pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32) -> Result<()>
         sample_format: hound::SampleFormat::Int,
     };
     let mut wav = match audio {
-        Some(_) => Some(hound::WavWriter::create(dir.join("audio.wav"), wav_spec)?),
+        Some(_) => Some(WavSink::create(&dir.join("audio.wav"), wav_spec, arx)?),
+        None => None,
+    };
+    // 对照：同时录整机环回（游戏声音走不走进程环回，一比就知道）
+    let (stx, srx) = mpsc::channel::<Vec<f32>>();
+    let system = if system_audio {
+        match moyu_win::audio::AudioCapture::start(None, stx) {
+            Ok(a) => Some(a),
+            Err(e) => {
+                println!("整机环回不可用（{e}）。");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut system_wav = match system {
+        Some(_) => Some(WavSink::create(&dir.join("audio-system.wav"), wav_spec, srx)?),
         None => None,
     };
 
@@ -95,7 +112,7 @@ pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32) -> Result<()>
     let mut i = 0u32;
     let mut last_thumb: Option<Instant> = None;
     let mut last_refresh = Instant::now();
-    let (mut clicks, mut audio_samples) = (0u32, 0usize);
+    let mut clicks = 0u32;
 
     println!("开始录制 -> {}（{}x{}，k={}，{fps} fps）。正常钓鱼即可，按 Ctrl+C 结束。", dir.display(), w.w, w.h, k);
     println!("场景：{scenario:?}。最好白天、夜晚各钓一会儿；中途别改窗口大小。");
@@ -138,11 +155,10 @@ pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32) -> Result<()>
         i += 1;
 
         while let Ok(m) = mrx.try_recv() {
-            if m.injected {
-                continue;
-            }
+            // 注入的点击（AutoMoyu 全自动在跑）也记下来、标上 injected：analyze 不拿它当标注，
+            // 但能对出程序是在哪一刻收竿的
             let down = m.button == Button::RightDown;
-            clicks += down as u32;
+            clicks += (down && !m.injected) as u32;
             let rec = InputRec {
                 t_ms: m.at.saturating_duration_since(t0).as_millis() as u64,
                 kind: if down { "rdown" } else { "rup" }.into(),
@@ -151,28 +167,16 @@ pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32) -> Result<()>
             writeln!(events, "{}", serde_json::to_string(&rec)?)?;
         }
         if let Some(wv) = wav.as_mut() {
-            while let Ok(chunk) = arx.try_recv() {
-                audio_samples += chunk.len();
-                for s in chunk {
-                    wv.write_sample((s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
-                }
-            }
-            // 进程环回在游戏静音时不送数据：补零，让 wav 的时间轴和画面对齐
-            let sr = moyu_win::audio::SAMPLE_RATE as f64;
-            let expected = (t0.elapsed().as_secs_f64() * sr) as usize;
-            if expected > audio_samples + (0.25 * sr) as usize {
-                let pad = expected - audio_samples - (0.05 * sr) as usize;
-                for _ in 0..pad {
-                    wv.write_sample(0i16)?;
-                }
-                audio_samples += pad;
-            }
+            wv.drain(t0)?;
+        }
+        if let Some(wv) = system_wav.as_mut() {
+            wv.drain(t0)?;
         }
         if i % (fps * 10).max(1) == 0 {
             println!(
                 "  {:>4}s · {i} 帧 · 右键 {clicks} 次 · 声音 {:.1}s{}",
                 t0.elapsed().as_secs(),
-                audio_samples as f32 / moyu_win::audio::SAMPLE_RATE as f32,
+                wav.as_ref().map_or(0, |w| w.samples) as f32 / moyu_win::audio::SAMPLE_RATE as f32,
                 if fg { "" } else { " · 游戏不在前台（不录画面）" }
             );
         }
@@ -185,7 +189,10 @@ pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32) -> Result<()>
     frames.flush()?;
     events.flush()?;
     if let Some(wv) = wav {
-        wv.finalize()?;
+        wv.w.finalize()?;
+    }
+    if let Some(wv) = system_wav {
+        wv.w.finalize()?;
     }
     println!(
         "录完：{i} 帧，右键 {clicks} 次，用时 {} 秒。下一步：moyu-bench analyze {}",
@@ -193,4 +200,36 @@ pub fn run(dir: &Path, scenario: Scenario, fps: u32, minutes: u32) -> Result<()>
         dir.display()
     );
     Ok(())
+}
+
+struct WavSink {
+    w: hound::WavWriter<std::io::BufWriter<fs::File>>,
+    rx: mpsc::Receiver<Vec<f32>>,
+    samples: usize,
+}
+
+impl WavSink {
+    fn create(path: &Path, spec: hound::WavSpec, rx: mpsc::Receiver<Vec<f32>>) -> Result<Self> {
+        Ok(Self { w: hound::WavWriter::create(path, spec)?, rx, samples: 0 })
+    }
+
+    fn drain(&mut self, t0: Instant) -> Result<()> {
+        while let Ok(chunk) = self.rx.try_recv() {
+            self.samples += chunk.len();
+            for s in chunk {
+                self.w.write_sample((s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
+            }
+        }
+        // 进程环回在游戏静音时不送数据：补零，让 wav 的时间轴和画面对齐
+        let sr = moyu_win::audio::SAMPLE_RATE as f64;
+        let expected = (t0.elapsed().as_secs_f64() * sr) as usize;
+        if expected > self.samples + (0.25 * sr) as usize {
+            let pad = expected - self.samples - (0.05 * sr) as usize;
+            for _ in 0..pad {
+                self.w.write_sample(0i16)?;
+            }
+            self.samples += pad;
+        }
+        Ok(())
+    }
 }

@@ -77,6 +77,8 @@ export interface Status {
   signal: SignalView | null;
   overlayOn: boolean;
   lang: Lang;
+  /** 系统开启了空间音效（Dolby Atmos 等），全自动只能改录整机声音。 */
+  spatialSound: boolean;
 }
 
 export type EngineEvent =
