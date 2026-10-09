@@ -1,8 +1,9 @@
 // 首页顶部的更新横幅。钓鱼进行中不出现。
 
+import { useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownCircle } from "lucide-react";
 
-import { api, openUrl } from "../lib/api";
+import { api } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
 import { download } from "../lib/updater";
@@ -24,6 +25,15 @@ export function UpdateBanner() {
   const session = useStore((s) => s.status?.session);
   const patch = useStore((s) => s.patchSettings);
   const setUpdate = useStore((s) => s.setUpdate);
+  const notesRef = useRef<HTMLSpanElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const notes = "info" in update && update.info.notes ? pickNotes(update.info.notes) : "";
+  // 说明超出收起高度时才给「展开」按钮
+  useLayoutEffect(() => {
+    const el = notesRef.current;
+    if (el && !expanded) setClipped(el.scrollHeight > el.clientHeight + 1);
+  }, [notes, expanded]);
   if (session) return null;
   if (update.state !== "available" && update.state !== "ready" && update.state !== "downloading") return null;
   const { info } = update;
@@ -41,14 +51,21 @@ export function UpdateBanner() {
               ? t(`新版本 ${info.version} 已下载`, `Version ${info.version} downloaded`)
               : t(`发现新版本 ${info.version}`, `Version ${info.version} available`)}
           </b>
-          {info.notes && <span className="notes">{pickNotes(info.notes)}</span>}
-          <button
-            className="link"
-            style={{ fontSize: 12, alignSelf: "flex-start", marginTop: 4 }}
-            onClick={() => void openUrl(`https://github.com/fineyh/AutoMoyu/releases/tag/v${info.version}`)}
-          >
-            {t("完整更新说明", "Full release notes")}
-          </button>
+          {notes && (
+            <span ref={notesRef} className={expanded ? "notes open" : "notes"}>
+              {notes}
+            </span>
+          )}
+          {(clipped || expanded) && (
+            <button
+              className="link"
+              style={{ fontSize: 12, alignSelf: "flex-start", marginTop: 4 }}
+              aria-expanded={expanded}
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? t("收起", "Show less") : t("完整更新说明", "Full release notes")}
+            </button>
+          )}
         </div>
       </div>
       {update.state === "downloading" && (

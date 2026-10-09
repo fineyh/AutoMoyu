@@ -5,6 +5,12 @@
 
 ## [未发布]
 
+- 更新提示里的「完整更新说明」改为直接在提示里展开，不再跳转 GitHub；收起时按整行截断
+
+**English**
+
+- "Full release notes" in the update notice now expands in place instead of opening GitHub; collapsed notes are cut at whole lines
+
 ## [1.0.0-beta.3] - 2026-10-09
 
 - 模式改叫「钓鱼机模式」和「野钓模式」，按在哪钓来选；去掉了「测试版」标记

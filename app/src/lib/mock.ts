@@ -118,7 +118,7 @@ export async function mockInvoke(cmd: string, args?: Record<string, unknown>): P
         ? {
             version: "1.0.0-beta.2", current: "1.0.0-beta.1", date: null,
             notes:
-              "\n- 修好了一个问题\n- 统计页加了一张图\n\n**English**\n\n- Fixed a problem\n- Added a chart to the stats page\n\n---\n\n安装：…\n\nInstall: …",
+              "\n- 修好了一个问题\n- 统计页加了一张图\n- 托盘菜单可以直接切换模式\n- 浮层位置会记住\n- 校准更快了\n- 自动停止条件多了一项\n\n**English**\n\n- Fixed a problem\n- Added a chart to the stats page\n- Switch modes right from the tray menu\n- The overlay remembers where you put it\n- Calibration is faster\n- One more auto-stop condition\n\n---\n\n安装：…\n\nInstall: …",
           }
         : null;
     case "update_download": return new Promise((r) => setTimeout(r, 1500));
