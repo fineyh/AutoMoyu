@@ -7,6 +7,7 @@ import { Select, Switch, WindowPicker } from "../components/ui";
 import { api, openUrl, revealPath, saveDialog } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
+import { modeName } from "../lib/text";
 import { checkForUpdate } from "../lib/updater";
 import type { AppInfo, AutoStopKind, Settings as S } from "../lib/types";
 
@@ -195,8 +196,8 @@ export function Settings() {
             disabled={running}
             onChange={(v) => p({ mode: v })}
             options={[
-              { value: "rodOnly", label: t("自动甩竿（有钓鱼机）", "Auto-cast (with a fish farm)") },
-              { value: "full", label: t("全自动（无钓鱼机）", "Full auto (no farm)") },
+              { value: "rodOnly", label: modeName("rodOnly") },
+              { value: "full", label: modeName("full") },
             ]}
           />
         </div>
@@ -455,7 +456,7 @@ export function Settings() {
               template: "bug_report.yml",
               title: t("[反馈] ", "[Bug] "),
               version: info?.version ?? "",
-              mode: s.mode === "full" ? t("全自动", "Full auto") : t("自动甩竿", "Auto-cast"),
+              mode: modeName(s.mode),
               window: status?.window ? `${status.window.w}x${status.window.h}` : t("未找到", "not found"),
             });
             void openUrl(`${REPO}/issues/new?${q}`);

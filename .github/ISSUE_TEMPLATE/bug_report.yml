@@ -20,7 +20,7 @@ body:
     id: mode
     attributes:
       label: 模式 / Mode
-      description: 自动甩竿 or 全自动 / auto-cast or full auto
+      description: 钓鱼机模式 or 野钓模式 / fish farm or open water
     validations:
       required: true
 

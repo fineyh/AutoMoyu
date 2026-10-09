@@ -141,8 +141,8 @@ export function Calibrate() {
             {status?.mode === "full" && (
               <span className="fine">
                 {t(
-                  "全自动还会听咬钩的水花声：游戏「音效」音量别调到 0，音乐可以关掉。",
-                  "Full auto also listens for the bite splash: keep the game's sound effects volume above 0 (music can be off).",
+                  "野钓模式要靠咬钩的水花声收竿：游戏「音效」音量别调到 0，音乐可以关掉。",
+                  "In open water mode AutoMoyu reels in on the bite splash: keep the game's sound effects volume above 0 (music can be off).",
                 )}
               </span>
             )}

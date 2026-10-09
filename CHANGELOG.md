@@ -5,6 +5,16 @@
 
 ## [未发布]
 
+- 模式改叫「钓鱼机模式」和「野钓模式」，按在哪钓来选；去掉了「测试版」标记
+- 系统开了空间音效（Dolby Atmos 等）时，首页会提示并给出「声音设置」按钮；这时改录整机声音，咬钩照样能听到
+- 猫叫等动物叫声不再被当成咬钩
+
+**English**
+
+- The modes are now called "Fish farm" and "Open water", named after where you fish; the "beta" tag is gone
+- When Windows spatial sound (Dolby Atmos etc.) is on, the home page says so and offers a "Sound settings" button; AutoMoyu then records system-wide audio so bites are still heard
+- Cats meowing and other animal calls no longer count as bites
+
 ## [1.0.0-beta.2] - 2026-10-07
 
 - 更新提示里加了「完整更新说明」链接，说明太长被截断时可以点开看全文

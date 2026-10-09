@@ -2,7 +2,16 @@
 // 都是函数：语言切换后重新渲染就拿到新语言。
 
 import { plural, t } from "./i18n";
-import type { EngineEvent, Phase, PauseReason, Quality, StopReason } from "./types";
+import type { EngineEvent, Mode, Phase, PauseReason, Quality, StopReason } from "./types";
+
+// 两种模式都是全自动，只是钓的地方不同，所以按场景叫；说明写在哪钓，不写原理。
+export function modeName(m: Mode): string {
+  return m === "full" ? t("野钓模式", "Open water") : t("钓鱼机模式", "Fish farm");
+}
+
+export function modeHint(m: Mode): string {
+  return m === "full" ? t("对着任意水面钓", "Fish at any water") : t("配合半自动钓鱼机", "With a semi-auto fish farm");
+}
 
 export function phaseText(p: Phase): string {
   switch (p) {

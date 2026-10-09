@@ -6,7 +6,7 @@ import { BarChart } from "../components/BarChart";
 import { api, saveDialog } from "../lib/api";
 import { isEn, plural, t } from "../lib/i18n";
 import { useStore } from "../lib/store";
-import { fish, humanDuration } from "../lib/text";
+import { fish, humanDuration, modeName } from "../lib/text";
 import type { StatsView } from "../lib/types";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -149,7 +149,7 @@ export function Stats() {
                   {monthDay(d.getMonth() + 1, d.getDate())} {String(d.getHours()).padStart(2, "0")}:{String(d.getMinutes()).padStart(2, "0")}
                   <br />
                   <small>
-                    {r.mode === "full" ? t("全自动", "Full auto") : t("自动甩竿", "Auto-cast")} · {dur(r.activeMs)}
+                    {modeName(r.mode)} · {dur(r.activeMs)}
                     {r.source === "legacy" ? " · v0.1" : ""}
                   </small>
                 </span>

@@ -9,7 +9,7 @@ import { Note, WindowPicker } from "../components/ui";
 import { api } from "../lib/api";
 import { t } from "../lib/i18n";
 import { useStore } from "../lib/store";
-import { clock, feedLine, pauseText, qualityText, secs, stopText, timeOf } from "../lib/text";
+import { clock, feedLine, modeHint, modeName, pauseText, qualityText, secs, stopText, timeOf } from "../lib/text";
 import type { Mode, StatsView } from "../lib/types";
 
 export function Home() {
@@ -64,12 +64,12 @@ export function Home() {
       <UpdateBanner />
       <div className="seg" role="group" aria-label={t("模式", "Mode")}>
         <button aria-pressed={status?.mode === "rodOnly"} disabled={running} onClick={() => setMode("rodOnly")}>
-          {t("自动甩竿", "Auto-cast")}
-          <small>{t("有钓鱼机", "With a fish farm")}</small>
+          {modeName("rodOnly")}
+          <small>{modeHint("rodOnly")}</small>
         </button>
         <button aria-pressed={status?.mode === "full"} disabled={running} onClick={() => setMode("full")}>
-          {t("全自动", "Full auto")}
-          <small>{t("无钓鱼机 · 测试版", "No farm · beta")}</small>
+          {modeName("full")}
+          <small>{modeHint("full")}</small>
         </button>
       </div>
 

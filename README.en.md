@@ -15,9 +15,9 @@ An auto-fishing tool for Minecraft Bedrock Edition on Windows. It watches the fi
 
 ## Features
 
-- **Two modes**
-  - Auto-cast: for use with a semi-automatic fish farm. The farm reels in, AutoMoyu casts again.
-  - Full auto (beta): no farm needed. Face the water; AutoMoyu reels in when it hears a bite, then casts again.
+- **Two modes**, both fully automatic; pick by where you fish
+  - Fish farm: for use with a semi-automatic fish farm. The farm reels in, AutoMoyu casts again.
+  - Open water: no farm needed. Face any water; AutoMoyu reels in when it hears a bite, then casts again.
 - **No region picking, no thresholds to tune.** The first time you use it, AutoMoyu calibrates itself in about 10 seconds. Each window size only needs to be calibrated once.
 - Recognises the rod by day, at night and in rain, and adjusts as the light changes at dusk and dawn.
 - On laggy servers the cast often jumps back before going out again. AutoMoyu tells this apart from a real reel-in and doesn't cast twice.
@@ -43,7 +43,7 @@ AutoMoyu checks for updates by itself. It won't interrupt you while fishing; onc
 
 ## Usage
 
-1. Start the game and hold a fishing rod. With a fish farm, stand where the farm expects you. For full auto, aim at the water.
+1. Start the game and hold a fishing rod. In fish farm mode, stand where the farm expects you. In open water mode, aim at the water.
 2. AutoMoyu opens calibration on first launch. Switch to the game and press **F6**. It casts twice by itself; don't move the mouse until it's done.
 3. Press **F6** to start fishing and again to pause. **F7** shows or hides the in-game overlay.
 
@@ -52,7 +52,8 @@ Keep the game window in front while it runs. Switching to another window pauses 
 For steadier detection:
 
 - Turn off View Bobbing in the game settings and don't use shaders.
-- Full auto relies on sound, so keep the game's sound effects volume above 0. Music can be off, and your own music or voice chat won't get in the way.
+- In open water mode, bites are detected by sound, so keep the game's sound effects volume above 0. Music can be off, and your own music or voice chat won't get in the way.
+- Turn off Windows spatial sound (Dolby Atmos, Windows Sonic and so on). With it on, AutoMoyu has to record all system audio instead, and sounds from other apps may trigger a false reel.
 
 ## FAQ
 
@@ -67,6 +68,10 @@ Usually you aren't holding a fishing rod, or there's no water in front of you. F
 **"Can't recognise the rod"**
 
 Usually the inventory or a menu is open. Close it and AutoMoyu carries on. If it keeps happening, recalibrate under Settings → Fishing.
+
+**"Spatial sound is on"**
+
+In Windows Settings → System → Sound, open your output device's properties and set Spatial sound to Off. The "Sound settings" button in the notice opens that page. The notice goes away once it's off.
 
 **"High server lag makes the cast jump back; adjusted automatically"**
 
@@ -83,7 +88,7 @@ Go to Settings → Advanced → Export diagnostics, then [open an issue](https:/
 ## How it works
 
 - **Rod state**: during calibration AutoMoyu casts twice and records what the screen looks like with the rod reeled in and cast out. It then picks the area near the held rod or the hotbar where the two look most different. While running it captures that area 15 times a second and checks which of the two it's closer to.
-- **Bite detection** (full auto): it records only Minecraft's own audio through WASAPI process loopback. A bite splash is a sustained burst of broadband noise; AutoMoyu looks at its loudness and duration, so the short sounds of a fish swimming up don't count as a bite.
+- **Bite detection** (open water mode): it records only Minecraft's own audio through WASAPI process loopback. A bite splash is a sustained burst of broadband noise; AutoMoyu looks at its loudness and duration, so the short sounds of a fish swimming up don't count as a bite, and tonal sounds such as cats meowing are ignored too.
 - **Clicking**: right-clicks are simulated with Windows `SendInput`, and by default only when the game is the foreground window.
 
 Everything runs locally. The only network access is the update check.
